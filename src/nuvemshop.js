@@ -36,16 +36,30 @@ export async function exchangeCodeForToken(code) {
   return response.json();
 }
 
-export async function nuvemshopRequest({ storeId, accessToken, path, method = "GET", body }) {
-  const response = await fetch(`${API_BASE}/${storeId}${path}`, {
-    method,
-    headers: {
-      "Authentication": `bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "User-Agent": env("NUVEMSHOP_USER_AGENT", "VenosModasApp/0.1")
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
+export async function nuvemshopRequest({ storeId, accessToken, path, method = "GET", body, timeoutMs = 15000 }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE}/${storeId}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        "Authentication": `bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": env("NUVEMSHOP_USER_AGENT", "VenosModasApp/0.1")
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Nuvemshop API demorou para responder em ${path}. Tente novamente em alguns instantes.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const text = await response.text();

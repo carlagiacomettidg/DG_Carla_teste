@@ -39,6 +39,7 @@ function App() {
   const [activeView, setActiveView] = useState("products");
   const [importFileName, setImportFileName] = useState("");
   const [locations, setLocations] = useState([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -102,10 +103,23 @@ function App() {
   }
 
   async function syncLocations() {
+    setLocationsLoading(true);
     setNotice("Buscando centros de distribuição da Nuvemshop...");
-    const nextLocations = await api("/api/locations/sync");
-    setLocations(Array.isArray(nextLocations) ? nextLocations : []);
-    setNotice(`${Array.isArray(nextLocations) ? nextLocations.length : 0} centros de distribuição encontrados.`);
+
+    try {
+      const nextLocations = await api("/api/locations/sync");
+      const list = Array.isArray(nextLocations) ? nextLocations : [];
+      setLocations(list);
+      setNotice(
+        list.length
+          ? `${list.length} centros de distribuição encontrados.`
+          : "Nenhum centro de distribuição foi retornado pela API da Nuvemshop."
+      );
+    } catch (error) {
+      setNotice(error.message || "Não foi possível buscar os centros de distribuição.");
+    } finally {
+      setLocationsLoading(false);
+    }
   }
 
   function selectWholesaleLocation(event) {
@@ -539,9 +553,9 @@ function App() {
                 <h2>Configurações</h2>
                 <p>Defina o CD usado nas vendas de atacado e o critério de aprovação.</p>
               </div>
-              <button type="button" onClick={syncLocations}>
+              <button type="button" onClick={syncLocations} disabled={locationsLoading}>
                 <RefreshCw size={16} />
-                Atualizar CDs
+                {locationsLoading ? "Buscando..." : "Atualizar CDs"}
               </button>
             </div>
 

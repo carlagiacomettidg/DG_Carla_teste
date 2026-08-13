@@ -272,6 +272,10 @@ h2 {
   padding: 0 18px 18px;
 }
 
+.products-section > .form-grid {
+  padding: 0 18px 18px;
+}
+
 .products-heading {
   display: flex;
   justify-content: space-between;

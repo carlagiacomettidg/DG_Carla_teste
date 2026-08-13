@@ -139,8 +139,20 @@ function isRoute(req, method, pathname) {
 }
 
 function normalizeLocation(location) {
+  const address =
+    typeof location.address === "object" && location.address !== null
+      ? [
+          location.address.street,
+          location.address.number,
+          location.address.locality,
+          location.address.city,
+          location.address.province,
+          location.address.state,
+          location.address.zipcode || location.address.postal_code
+        ]
+      : [location.address];
   const addressParts = [
-    location.address,
+    ...address,
     location.street,
     location.number,
     location.floor,
@@ -153,7 +165,7 @@ function normalizeLocation(location) {
 
   return {
     id: String(location.id || ""),
-    name: location.name || location.description || `CD ${location.id}`,
+    name: location.name || location.description || location.code || `CD ${location.id}`,
     address: addressParts.join(", "),
     raw: location
   };
