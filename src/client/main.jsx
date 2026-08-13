@@ -72,6 +72,7 @@ function App() {
   const [importFileName, setImportFileName] = useState("");
   const [locations, setLocations] = useState([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -221,15 +222,34 @@ function App() {
   }
 
   async function applyBulkDiscount() {
-    const nextRules = await api("/api/rules/bulk-discount", {
-      method: "POST",
-      body: JSON.stringify({
-        discountPercent: Number(discountPercent || 0),
-        selectedIds
-      })
-    });
-    setRules(nextRules);
-    setNotice(`Desconto de ${Number(discountPercent || 0)}% aplicado em ${selectedIds.length} itens.`);
+    if (!discountPercent) {
+      setNotice("Informe uma porcentagem de desconto antes de aplicar.");
+      return;
+    }
+
+    const selectedCount = selectedIds.length;
+    setBulkLoading(true);
+    setNotice(`Aplicando desconto em ${selectedCount || "todos os"} itens...`);
+
+    try {
+      const nextRules = await api("/api/rules/bulk-discount", {
+        method: "POST",
+        body: JSON.stringify({
+          discountPercent: Number(discountPercent || 0),
+          selectedIds
+        })
+      });
+      setRules(nextRules);
+      setNotice(`Desconto de ${Number(discountPercent || 0)}% aplicado em ${selectedCount || nextRules.length} itens.`);
+    } catch (error) {
+      setNotice(error.message || "Não foi possível aplicar o desconto.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  function patchRuleLocal(id, patch) {
+    setRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
   }
 
   async function updateRule(id, patch) {
@@ -402,8 +422,8 @@ function App() {
                   step="0.01"
                   placeholder="% desconto"
                 />
-                <button type="button" onClick={applyBulkDiscount}>
-                  Aplicar nos selecionados
+                <button type="button" onClick={applyBulkDiscount} disabled={bulkLoading}>
+                  {bulkLoading ? "Aplicando..." : "Aplicar nos selecionados"}
                 </button>
               </div>
             </div>
@@ -475,17 +495,19 @@ function App() {
                       <td>
                         <input
                           className="table-input"
-                          defaultValue={rule.wholesalePrice || 0}
+                          value={rule.wholesalePrice ?? 0}
                           type="number"
                           step="0.01"
+                          onChange={(event) => patchRuleLocal(rule.id, { wholesalePrice: event.target.value })}
                           onBlur={(event) => updateRule(rule.id, { wholesalePrice: event.target.value })}
                         />
                       </td>
                       <td>
                         <input
                           className="table-input"
-                          defaultValue={rule.wholesaleStock || 0}
+                          value={rule.wholesaleStock ?? 0}
                           type="number"
+                          onChange={(event) => patchRuleLocal(rule.id, { wholesaleStock: event.target.value })}
                           onBlur={(event) => updateRule(rule.id, { wholesaleStock: event.target.value })}
                         />
                       </td>

@@ -52,6 +52,7 @@ button {
   padding: 0 14px;
   font-weight: 600;
   white-space: nowrap;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.08s ease, box-shadow 0.16s ease;
 }
 
 button.primary {
@@ -89,8 +90,24 @@ button:disabled {
   white-space: nowrap;
 }
 
-button.primary:hover {
+button:hover,
+.button-link:hover {
+  border-color: #9bb7f0;
+  background: #f8fbff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+button:active,
+.button-link:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+button.primary:hover,
+.primary-link:hover {
   background: var(--brand-dark);
+  border-color: var(--brand-dark);
+  color: #fff;
 }
 
 .shell {
@@ -132,6 +149,14 @@ button.primary:hover {
   font-weight: 700;
   padding: 0 0 12px;
   min-height: 36px;
+  box-shadow: none;
+}
+
+.tabs button:hover {
+  background: transparent;
+  border-color: transparent;
+  border-bottom-color: #9bb7f0;
+  box-shadow: none;
 }
 
 .tabs button.active {
@@ -766,6 +791,11 @@ tr:last-child td {
 
 .table-input {
   width: 112px;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.table-input:focus {
+  background: #f8fbff;
 }
 
 pre {
