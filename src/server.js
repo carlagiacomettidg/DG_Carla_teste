@@ -171,6 +171,10 @@ function normalizeLocation(location) {
   };
 }
 
+function sameStore(store, storeId) {
+  return String(store?.id || "") === String(storeId || "");
+}
+
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -199,6 +203,61 @@ async function handleApi(req, res) {
   if (isRoute(req, "GET", "/auth/start")) {
     res.writeHead(302, { Location: buildInstallUrl() });
     return res.end();
+  }
+
+  if (isRoute(req, "POST", "/webhooks/store-redact")) {
+    const body = await parseBody(req);
+    await updateDb((db) => {
+      if (!sameStore(db.store, body.store_id)) return db;
+      db.store = {
+        ...db.store,
+        id: "",
+        accessToken: "",
+        retailLocationId: "",
+        wholesaleLocationId: "",
+        wholesaleLocationAddress: ""
+      };
+      db.rules = [];
+      db.wholesaleCustomers = [];
+      db.installs = [];
+      return db;
+    });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (isRoute(req, "POST", "/webhooks/customers-redact")) {
+    const body = await parseBody(req);
+    const customer = body.customer || {};
+    const email = String(customer.email || "").toLowerCase();
+    const cnpj = normalizeDocument(customer.identification || customer.cnpj || "");
+    const id = String(customer.id || "");
+
+    await updateDb((db) => {
+      if (!sameStore(db.store, body.store_id)) return db;
+      db.wholesaleCustomers = (db.wholesaleCustomers || []).filter((item) => {
+        if (id && String(item.nuvemshopCustomerId || "") === id) return false;
+        if (email && String(item.email || "").toLowerCase() === email) return false;
+        if (cnpj && normalizeDocument(item.cnpj) === cnpj) return false;
+        return true;
+      });
+      return db;
+    });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (isRoute(req, "POST", "/webhooks/customers-data-request")) {
+    const body = await parseBody(req);
+    await updateDb((db) => {
+      db.dataRequests ||= [];
+      db.dataRequests.unshift({
+        id: randomUUID(),
+        receivedAt: new Date().toISOString(),
+        payload: body
+      });
+      db.dataRequests = db.dataRequests.slice(0, 100);
+      return db;
+    });
+    return sendJson(res, 200, { ok: true });
   }
 
   if (isRoute(req, "GET", "/auth/callback")) {
