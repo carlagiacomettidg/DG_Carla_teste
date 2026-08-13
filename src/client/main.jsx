@@ -48,6 +48,7 @@ function App() {
           log: false
         });
 
+        nexoModule.iAmReady(nexoClient);
         await nexoModule.connect(nexoClient);
         nexoModule.iAmReady(nexoClient);
         setEmbeddedStatus("Incorporado ao admin");
