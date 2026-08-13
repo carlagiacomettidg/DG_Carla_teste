@@ -17,6 +17,7 @@ import { parseSpreadsheetAsync } from "./importer.js";
 import {
   buildInstallUrl,
   exchangeCodeForToken,
+  listAllCustomers,
   listAllProducts,
   listLocations,
   registerLocationBusinessRule
@@ -247,7 +248,7 @@ async function handleApi(req, res) {
             wholesaleStock: current.wholesaleStock ?? item.wholesaleStock,
             enabled: current.enabled !== false
           });
-        } else if (item.sku) {
+        } else {
           state.rules.push({ id: randomUUID(), ...item });
         }
       });
@@ -415,6 +416,58 @@ async function handleApi(req, res) {
     return sendJson(res, 200, db.wholesaleCustomers || []);
   }
 
+  if (isRoute(req, "POST", "/api/wholesale-customers/sync")) {
+    const db = await readDb();
+    if (!db.store.id || !db.store.accessToken) {
+      return sendJson(res, 400, { error: "Loja ainda nao conectada via OAuth." });
+    }
+
+    const customers = await listAllCustomers({
+      storeId: db.store.id,
+      accessToken: db.store.accessToken
+    });
+
+    const next = await updateDb((state) => {
+      state.wholesaleCustomers ||= [];
+      const byId = new Map(state.wholesaleCustomers.map((customer) => [String(customer.nuvemshopCustomerId || customer.id), customer]));
+      const byEmail = new Map(
+        state.wholesaleCustomers
+          .filter((customer) => customer.email)
+          .map((customer) => [String(customer.email).toLowerCase(), customer])
+      );
+
+      customers.forEach((customer) => {
+        const existing = byId.get(String(customer.id)) || byEmail.get(String(customer.email || "").toLowerCase());
+        const payload = {
+          nuvemshopCustomerId: String(customer.id),
+          name: customer.name || "",
+          email: customer.email || "",
+          cnpj: normalizeDocument(customer.identification || ""),
+          phone: customer.phone || "",
+          totalOrders: Number(customer.total_orders || 0),
+          totalSpent: money(customer.total_spent || 0),
+          source: existing?.source || "nuvemshop",
+          requestStatus: existing?.requestStatus || "none",
+          approved: existing?.approved === true,
+          createdAt: existing?.createdAt || customer.created_at || new Date().toISOString()
+        };
+
+        if (existing) {
+          Object.assign(existing, payload);
+        } else {
+          state.wholesaleCustomers.push({ id: randomUUID(), ...payload });
+        }
+      });
+
+      return state;
+    });
+
+    return sendJson(res, 200, {
+      imported: customers.length,
+      customers: next.wholesaleCustomers || []
+    });
+  }
+
   if (isRoute(req, "POST", "/api/wholesale-customers")) {
     const body = await parseBody(req);
     const cnpj = normalizeDocument(body.cnpj);
@@ -446,6 +499,57 @@ async function handleApi(req, res) {
       return db;
     });
     return sendJson(res, 201, next.wholesaleCustomers);
+  }
+
+  if (isRoute(req, "POST", "/api/wholesale-requests")) {
+    const body = await parseBody(req);
+    const cnpj = normalizeDocument(body.cnpj);
+    if (!isValidCnpj(cnpj)) {
+      return sendJson(res, 400, { error: "CNPJ invalido." });
+    }
+
+    const next = await updateDb((db) => {
+      db.wholesaleCustomers ||= [];
+      const existing = db.wholesaleCustomers.find(
+        (customer) =>
+          normalizeDocument(customer.cnpj) === cnpj ||
+          String(customer.email || "").toLowerCase() === String(body.email || "").toLowerCase()
+      );
+
+      if (existing) {
+        Object.assign(existing, {
+          name: body.name || existing.name,
+          email: body.email || existing.email,
+          cnpj,
+          phone: body.phone || existing.phone || "",
+          companyName: body.companyName || existing.companyName || "",
+          requestStatus: "pending",
+          source: "request",
+          requestedAt: new Date().toISOString()
+        });
+      } else {
+        db.wholesaleCustomers.unshift({
+          id: randomUUID(),
+          name: String(body.name || body.companyName || ""),
+          companyName: String(body.companyName || ""),
+          email: String(body.email || ""),
+          phone: String(body.phone || ""),
+          cnpj,
+          approved: false,
+          requestStatus: "pending",
+          source: "request",
+          requestedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      return db;
+    });
+
+    return sendJson(res, 201, {
+      ok: true,
+      customers: next.wholesaleCustomers
+    });
   }
 
   const customerMatch = url.pathname.match(/^\/api\/wholesale-customers\/([^/]+)$/);

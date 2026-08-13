@@ -98,6 +98,27 @@ export async function listAllProducts({ storeId, accessToken }) {
   return products;
 }
 
+export async function listAllCustomers({ storeId, accessToken }) {
+  const customers = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const batch = await nuvemshopRequest({
+      storeId,
+      accessToken,
+      path: `/customers?page=${page}&per_page=${perPage}&fields=id,name,email,identification,phone,total_spent,total_orders,last_order_id,created_at`
+    });
+
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    customers.push(...batch);
+    if (batch.length < perPage) break;
+    page += 1;
+  }
+
+  return customers;
+}
+
 export function updateVariantInventory({ storeId, accessToken, productId, variantId, inventoryLevels }) {
   return nuvemshopRequest({
     storeId,

@@ -35,6 +35,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [discountPercent, setDiscountPercent] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
+  const [activeView, setActiveView] = useState("products");
   const [embeddedStatus, setEmbeddedStatus] = useState(isEmbedded ? "Conectando ao admin" : "Painel web");
   const [embeddedMode, setEmbeddedMode] = useState(isEmbedded ? "loading" : "default");
 
@@ -125,6 +126,13 @@ function App() {
     setMessage(JSON.stringify({ synced: result.imported }, null, 2));
   }
 
+  async function syncCustomers() {
+    setMessage(JSON.stringify({ syncingCustomers: true }, null, 2));
+    const result = await api("/api/wholesale-customers/sync", { method: "POST" });
+    setCustomers(result.customers);
+    setMessage(JSON.stringify({ customersSynced: result.imported }, null, 2));
+  }
+
   async function applyBulkDiscount() {
     const nextRules = await api("/api/rules/bulk-discount", {
       method: "POST",
@@ -143,16 +151,6 @@ function App() {
       body: JSON.stringify(patch)
     });
     setRules(nextRules);
-  }
-
-  async function addCustomer(event) {
-    event.preventDefault();
-    const nextCustomers = await api("/api/wholesale-customers", {
-      method: "POST",
-      body: JSON.stringify(formToObject(event.currentTarget))
-    });
-    setCustomers(nextCustomers);
-    event.currentTarget.reset();
   }
 
   async function toggleCustomer(customer) {
@@ -232,281 +230,313 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">App sob demanda Nuvemshop</p>
-          <h1>Modulo atacado por CD</h1>
+          <h1>Produtos em atacado</h1>
         </div>
         <div className="top-actions">
           <span className="status-chip" data-mode={embeddedMode}>
             {embeddedStatus}
           </span>
-          <button onClick={syncProducts}>Sincronizar produtos</button>
           <a className="button-link" href="/api/rules/export">
-            Exportar CSV
+            Exportar
           </a>
+          <button onClick={syncProducts}>Sincronizar produtos</button>
           <button className="primary" onClick={simulateCheckout}>
-            Simular checkout
+            Testar regra
           </button>
         </div>
       </header>
 
-      <section className="status-grid">
-        <article>
-          <span>CD Atacado</span>
-          <strong>{settings.wholesaleLocationName || settings.wholesaleLocationId || "-"}</strong>
-        </article>
-        <article>
-          <span>Pedido minimo</span>
-          <strong>
-            {settings.wholesaleMinimumQuantity || 0} un. / {currency(settings.wholesaleMinimumAmount)}
-          </strong>
-        </article>
-      </section>
+      <nav className="tabs" aria-label="Secoes do app">
+        <button className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
+          Produtos
+        </button>
+        <button className={activeView === "import" ? "active" : ""} onClick={() => setActiveView("import")}>
+          Importar e exportar
+        </button>
+        <button className={activeView === "customers" ? "active" : ""} onClick={() => setActiveView("customers")}>
+          Clientes atacado
+        </button>
+        <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
+          Configuracoes
+        </button>
+      </nav>
 
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Configuracao geral</h2>
-            <p>Defina o CD usado nas vendas de atacado.</p>
+      {activeView === "products" && (
+        <>
+          <section className="summary-strip">
+            <article>
+              <span>CD atacado</span>
+              <strong>{settings.wholesaleLocationName || settings.wholesaleLocationId || "-"}</strong>
+            </article>
+            <article>
+              <span>Pedido minimo</span>
+              <strong>
+                {settings.wholesaleMinimumQuantity || 0} un. / {currency(settings.wholesaleMinimumAmount)}
+              </strong>
+            </article>
+            <article>
+              <span>Aprovacao</span>
+              <strong>{settings.wholesaleApprovalMode === "automatic" ? "Automatica por CNPJ" : "Revisao manual"}</strong>
+            </article>
+          </section>
+
+          <section className="products-section">
+            <div className="products-heading">
+              <div>
+                <h2>Produtos</h2>
+                <p>{filteredRules.length} produtos/variacoes</p>
+              </div>
+              <div className="bulk-box">
+                <input
+                  value={discountPercent}
+                  onChange={(event) => setDiscountPercent(event.target.value)}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="% desconto"
+                />
+                <button type="button" onClick={applyBulkDiscount}>
+                  Aplicar nos selecionados
+                </button>
+              </div>
+            </div>
+
+            <div className="products-toolbar">
+              <input
+                aria-label="Buscar produtos"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar produtos por nome, SKU ou variacao"
+              />
+              <button type="button">Filtrar</button>
+              <button type="button">Mais novo</button>
+            </div>
+
+            <p className="count-line">
+              {selectedIds.length > 0
+                ? `${selectedIds.length} selecionados. O desconto em massa usa o preco normal como base.`
+                : "Os produtos abaixo sao puxados do cadastro real da Nuvemshop. O app adiciona apenas as regras de atacado."}
+            </p>
+
+            {filteredRules.length === 0 ? (
+              <div className="empty-state">
+                <h3>Nenhum produto sincronizado</h3>
+                <p>Clique em Sincronizar produtos para carregar os produtos reais da loja.</p>
+                <button className="primary" onClick={syncProducts}>
+                  Sincronizar produtos
+                </button>
+              </div>
+            ) : (
+              <div className="table-wrap">
+              <table className="products-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} />
+                    </th>
+                    <th>Produto</th>
+                    <th>SKU</th>
+                    <th>Estoque varejo</th>
+                    <th>Preco normal</th>
+                    <th>Preco atacado</th>
+                    <th>Estoque atacado</th>
+                    <th>Variacao</th>
+                    <th>Acoes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRules.map((rule) => (
+                    <tr key={rule.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(String(rule.id))}
+                          onChange={() => toggleSelect(rule.id)}
+                        />
+                      </td>
+                      <td>
+                        <div className="product-cell">
+                          {rule.image ? <img src={rule.image} alt="" /> : <span className="image-empty" />}
+                          <strong>{rule.productName || "-"}</strong>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{rule.sku || "-"}</strong>
+                      </td>
+                      <td>{rule.retailStock || 0}</td>
+                      <td>{currency(rule.retailPrice)}</td>
+                      <td>
+                        <input
+                          className="table-input"
+                          defaultValue={rule.wholesalePrice || 0}
+                          type="number"
+                          step="0.01"
+                          onBlur={(event) => updateRule(rule.id, { wholesalePrice: event.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          defaultValue={rule.wholesaleStock || 0}
+                          type="number"
+                          onBlur={(event) => updateRule(rule.id, { wholesaleStock: event.target.value })}
+                        />
+                      </td>
+                      <td>{rule.variantName || "-"}</td>
+                      <td>
+                        <button onClick={() => deleteRule(rule.id)} type="button">
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {activeView === "import" && (
+        <section className="products-section">
+          <div className="panel-title">
+            <div>
+              <h2>Importar e exportar tabela</h2>
+              <p>Atualize preco e estoque de atacado por CSV ou XLSX.</p>
+            </div>
+            <a className="button-link" href="/api/rules/export">
+              Exportar modelo
+            </a>
           </div>
-        </div>
+          <form className="import-form" onSubmit={importRules}>
+            <input name="file" type="file" accept=".csv,.xlsx" required />
+            <button className="primary" type="submit">
+              Importar planilha
+            </button>
+          </form>
+        </section>
+      )}
 
-        <form className="form-grid" onSubmit={saveSettings}>
-          <label>
-            ID do CD Atacado
-            <input name="wholesaleLocationId" defaultValue={settings.wholesaleLocationId || ""} />
-          </label>
-          <label>
-            Nome do CD Atacado
-            <input name="wholesaleLocationName" defaultValue={settings.wholesaleLocationName || ""} />
-          </label>
-          <label>
-            Qtd. minima atacado
-            <input
-              name="wholesaleMinimumQuantity"
-              type="number"
-              min="0"
-              defaultValue={settings.wholesaleMinimumQuantity || 0}
-            />
-          </label>
-          <label>
-            Valor minimo atacado
-            <input
-              name="wholesaleMinimumAmount"
-              type="number"
-              min="0"
-              step="0.01"
-              defaultValue={settings.wholesaleMinimumAmount || 0}
-            />
-          </label>
-          <label>
-            Aprovacao de atacado
-            <select name="wholesaleApprovalMode" defaultValue={settings.wholesaleApprovalMode || "manual"}>
-              <option value="manual">Revisao manual</option>
-              <option value="automatic">Automatico com CNPJ valido</option>
-            </select>
-          </label>
-          <button className="primary" type="submit">
-            Salvar
-          </button>
-        </form>
-      </section>
-
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Importar tabela de atacado</h2>
-            <p>Envie CSV ou XLSX com SKU, preco_atacado e estoque_atacado.</p>
+      {activeView === "customers" && (
+        <section className="products-section">
+          <div className="panel-title">
+            <div>
+              <h2>Clientes atacado</h2>
+              <p>Clientes reais da Nuvemshop e solicitacoes de acesso atacado.</p>
+            </div>
+            <button onClick={syncCustomers}>Sincronizar clientes</button>
           </div>
-        </div>
-        <form className="import-form" onSubmit={importRules}>
-          <input name="file" type="file" accept=".csv,.xlsx" required />
-          <button className="primary" type="submit">
-            Importar planilha
-          </button>
-        </form>
-      </section>
 
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Produtos</h2>
-            <p>Puxe os produtos da Nuvemshop e configure preco/estoque de atacado.</p>
+          <div className="notice">
+            Link de solicitacao para o cliente: <strong>/cadastro-atacado.html</strong>
           </div>
-        </div>
 
-        <div className="products-toolbar">
-          <input
-            aria-label="Buscar produtos"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar produtos por nome, SKU ou variacao"
-          />
-          <input
-            value={discountPercent}
-            onChange={(event) => setDiscountPercent(event.target.value)}
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            placeholder="% desconto"
-          />
-          <button type="button" onClick={applyBulkDiscount}>
-            Aplicar desconto
-          </button>
-        </div>
-
-        <p className="count-line">
-          {filteredRules.length} produtos/variacoes
-          {selectedIds.length > 0 ? ` | ${selectedIds.length} selecionados` : ""}
-        </p>
-
-        <form className="rule-form" onSubmit={addRule}>
-          <input name="sku" placeholder="SKU" required />
-          <input name="productName" placeholder="Produto" />
-          <input name="wholesalePrice" type="number" step="0.01" placeholder="Preco atacado" required />
-          <input name="wholesaleStock" type="number" placeholder="Estoque atacado" />
-          <button className="primary" type="submit">
-            Adicionar
-          </button>
-        </form>
-
-        <div className="table-wrap">
-          <table className="products-table">
-            <thead>
-              <tr>
-                <th>
-                  <input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} />
-                </th>
-                <th>SKU</th>
-                <th>Produto</th>
-                <th>Variacao</th>
-                <th>Estoque varejo</th>
-                <th>Preco varejo</th>
-                <th>Preco atacado</th>
-                <th>Estoque atacado</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRules.map((rule) => (
-                <tr key={rule.id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(String(rule.id))}
-                      onChange={() => toggleSelect(rule.id)}
-                    />
-                  </td>
-                  <td>
-                    <strong>{rule.sku}</strong>
-                  </td>
-                  <td>
-                    <div className="product-cell">
-                      {rule.image ? <img src={rule.image} alt="" /> : <span className="image-empty" />}
-                      <strong>{rule.productName || "-"}</strong>
-                    </div>
-                  </td>
-                  <td>{rule.variantName || "-"}</td>
-                  <td>{rule.retailStock || 0}</td>
-                  <td>{currency(rule.retailPrice)}</td>
-                  <td>
-                    <input
-                      className="table-input"
-                      defaultValue={rule.wholesalePrice || 0}
-                      type="number"
-                      step="0.01"
-                      onBlur={(event) => updateRule(rule.id, { wholesalePrice: event.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="table-input"
-                      defaultValue={rule.wholesaleStock || 0}
-                      type="number"
-                      onBlur={(event) => updateRule(rule.id, { wholesaleStock: event.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <span className="pill">{rule.enabled ? "ativo" : "pausado"}</span>
-                  </td>
-                  <td>
-                    <button onClick={() => deleteRule(rule.id)} type="button">
-                      Remover
-                    </button>
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>E-mail</th>
+                  <th>CNPJ</th>
+                  <th>Origem</th>
+                  <th>Solicitacao</th>
+                  <th>Status</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Clientes atacado</h2>
-            <p>Cliente com CNPJ aprovado acessa a regra de atacado.</p>
+              </thead>
+              <tbody>
+                {customers.map((customer) => (
+                  <tr key={customer.id}>
+                    <td>
+                      <strong>{customer.name || "-"}</strong>
+                    </td>
+                    <td>{customer.email || "-"}</td>
+                    <td>{customer.cnpj || "-"}</td>
+                    <td>{customer.source === "request" ? "Formulario" : "Nuvemshop"}</td>
+                    <td>{customer.requestStatus === "pending" ? "Pendente" : "-"}</td>
+                    <td>
+                      <span className="pill">{customer.approved ? "aprovado" : "pendente"}</span>
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => toggleCustomer(customer)}>
+                        {customer.approved ? "Remover acesso" : "Aprovar"}
+                      </button>
+                      <button type="button" onClick={() => deleteCustomer(customer.id)}>
+                        Excluir
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+        </section>
+      )}
 
-        <form className="customer-form" onSubmit={addCustomer}>
-          <input name="name" placeholder="Nome / Razao social" required />
-          <input name="email" type="email" placeholder="E-mail" required />
-          <input name="cnpj" placeholder="CNPJ" required />
-          <input name="discountPercent" type="number" min="0" max="100" step="0.01" placeholder="% desconto extra" />
-          <button className="primary" type="submit">
-            Aprovar
-          </button>
-        </form>
+      {activeView === "settings" && (
+        <>
+          <section className="products-section">
+            <div className="panel-title">
+              <div>
+                <h2>Configuracoes</h2>
+                <p>Defina o CD usado nas vendas de atacado e o criterio de aprovacao.</p>
+              </div>
+            </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>E-mail</th>
-                <th>CNPJ</th>
-                <th>Desconto</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map((customer) => (
-                <tr key={customer.id}>
-                  <td>
-                    <strong>{customer.name || "-"}</strong>
-                  </td>
-                  <td>{customer.email || "-"}</td>
-                  <td>{customer.cnpj || "-"}</td>
-                  <td>{Number(customer.discountPercent || 0)}%</td>
-                  <td>
-                    <span className="pill">{customer.approved ? "aprovado" : "pendente"}</span>
-                  </td>
-                  <td>
-                    <button type="button" onClick={() => toggleCustomer(customer)}>
-                      {customer.approved ? "Remover acesso" : "Aprovar"}
-                    </button>
-                    <button type="button" onClick={() => deleteCustomer(customer.id)}>
-                      Excluir
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            <form className="form-grid" onSubmit={saveSettings}>
+              <label>
+                ID do CD Atacado
+                <input name="wholesaleLocationId" defaultValue={settings.wholesaleLocationId || ""} />
+              </label>
+              <label>
+                Nome do CD Atacado
+                <input name="wholesaleLocationName" defaultValue={settings.wholesaleLocationName || ""} />
+              </label>
+              <label>
+                Qtd. minima atacado
+                <input
+                  name="wholesaleMinimumQuantity"
+                  type="number"
+                  min="0"
+                  defaultValue={settings.wholesaleMinimumQuantity || 0}
+                />
+              </label>
+              <label>
+                Valor minimo atacado
+                <input
+                  name="wholesaleMinimumAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  defaultValue={settings.wholesaleMinimumAmount || 0}
+                />
+              </label>
+              <label>
+                Aprovacao de atacado
+                <select name="wholesaleApprovalMode" defaultValue={settings.wholesaleApprovalMode || "manual"}>
+                  <option value="manual">Revisao manual</option>
+                  <option value="automatic">Automatico com CNPJ valido</option>
+                </select>
+              </label>
+              <button className="primary" type="submit">
+                Salvar
+              </button>
+            </form>
+          </section>
 
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Resultado da simulacao</h2>
-            <p>Mostra qual CD seria priorizado com a regra atual.</p>
-          </div>
-        </div>
-        <pre>{message}</pre>
-      </section>
+          <section className="products-section">
+            <div className="panel-title">
+              <div>
+                <h2>Resultado do teste</h2>
+                <p>Mostra qual CD seria priorizado com a regra atual.</p>
+              </div>
+            </div>
+            <pre>{message}</pre>
+          </section>
+        </>
+      )}
     </main>
   );
 }
