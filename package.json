@@ -5,14 +5,23 @@
   "description": "App sob demanda para regras de atacado/varejo por CD na Nuvemshop.",
   "type": "module",
   "scripts": {
+    "build": "vite build",
     "dev": "node src/server.js",
+    "dev:client": "vite --host 0.0.0.0",
     "start": "node src/server.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@tiendanube/nexo": "^1.3.1",
     "exceljs": "^4.4.0",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1"
   }
 }
