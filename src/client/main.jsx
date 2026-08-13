@@ -31,13 +31,11 @@ function App() {
   const [settings, setSettings] = useState({});
   const [rules, setRules] = useState([]);
   const [customers, setCustomers] = useState([]);
-  const [message, setMessage] = useState("{}");
+  const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [discountPercent, setDiscountPercent] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   const [activeView, setActiveView] = useState("products");
-  const [embeddedStatus, setEmbeddedStatus] = useState(isEmbedded ? "Conectando ao admin" : "Painel web");
-  const [embeddedMode, setEmbeddedMode] = useState(isEmbedded ? "loading" : "default");
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -58,13 +56,9 @@ function App() {
         nexoModule.iAmReady(nexoClient);
         await nexoModule.connect(nexoClient);
         nexoModule.iAmReady(nexoClient);
-        setEmbeddedStatus("Incorporado ao admin");
-        setEmbeddedMode("ready");
       })
       .catch((error) => {
         console.warn("Falha ao conectar Nexo", error);
-        setEmbeddedStatus("Falha no Nexo");
-        setEmbeddedMode("warning");
       });
   }, []);
 
@@ -75,7 +69,7 @@ function App() {
         setRules(rulesData);
         setCustomers(customersData);
       })
-      .catch((error) => setMessage(error.message));
+      .catch((error) => setNotice(error.message));
   }, []);
 
   async function saveSettings(event) {
@@ -85,7 +79,7 @@ function App() {
       body: JSON.stringify(formToObject(event.currentTarget))
     });
     setSettings(nextSettings);
-    setMessage(JSON.stringify({ saved: true }, null, 2));
+    setNotice("Configurações salvas com sucesso.");
   }
 
   async function addRule(event) {
@@ -106,12 +100,12 @@ function App() {
     });
     const result = await response.json();
     if (!response.ok) {
-      setMessage(JSON.stringify(result, null, 2));
+      setNotice(result.error || "Não foi possível importar a planilha.");
       return;
     }
     setRules(result.rules);
     event.currentTarget.reset();
-    setMessage(JSON.stringify({ imported: result.imported }, null, 2));
+    setNotice(`${result.imported} itens importados com sucesso.`);
   }
 
   async function deleteRule(id) {
@@ -120,17 +114,17 @@ function App() {
   }
 
   async function syncProducts() {
-    setMessage(JSON.stringify({ syncing: true }, null, 2));
+    setNotice("Sincronizando produtos da Nuvemshop...");
     const result = await api("/api/rules/sync-products", { method: "POST" });
     setRules(result.rules);
-    setMessage(JSON.stringify({ synced: result.imported }, null, 2));
+    setNotice(`${result.imported} produtos/variações sincronizados.`);
   }
 
   async function syncCustomers() {
-    setMessage(JSON.stringify({ syncingCustomers: true }, null, 2));
+    setNotice("Sincronizando clientes da Nuvemshop...");
     const result = await api("/api/wholesale-customers/sync", { method: "POST" });
     setCustomers(result.customers);
-    setMessage(JSON.stringify({ customersSynced: result.imported }, null, 2));
+    setNotice(`${result.imported} clientes sincronizados.`);
   }
 
   async function applyBulkDiscount() {
@@ -142,7 +136,7 @@ function App() {
       })
     });
     setRules(nextRules);
-    setMessage(JSON.stringify({ discountApplied: Number(discountPercent || 0), selected: selectedIds.length }, null, 2));
+    setNotice(`Desconto de ${Number(discountPercent || 0)}% aplicado em ${selectedIds.length} itens.`);
   }
 
   async function updateRule(id, patch) {
@@ -200,7 +194,7 @@ function App() {
         locations: [{ id: settings.wholesaleLocationId, name: settings.wholesaleLocationName, priority: 1 }]
       })
     });
-    setMessage(JSON.stringify(result, null, 2));
+    setNotice("Teste executado com sucesso.");
   }
 
   const filteredRules = rules.filter((rule) => {
@@ -233,18 +227,14 @@ function App() {
           <h1>Produtos em atacado</h1>
         </div>
         <div className="top-actions">
-          <span className="status-chip" data-mode={embeddedMode}>
-            {embeddedStatus}
-          </span>
           <a className="button-link" href="/api/rules/export">
             Exportar
           </a>
           <button onClick={syncProducts}>Sincronizar produtos</button>
-          <button className="primary" onClick={simulateCheckout}>
-            Testar regra
-          </button>
         </div>
       </header>
+
+      {notice && <div className="admin-feedback">{notice}</div>}
 
       <nav className="tabs" aria-label="Secoes do app">
         <button className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
@@ -257,7 +247,7 @@ function App() {
           Clientes atacado
         </button>
         <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
-          Configuracoes
+          Configurações
         </button>
       </nav>
 
@@ -269,14 +259,14 @@ function App() {
               <strong>{settings.wholesaleLocationName || settings.wholesaleLocationId || "-"}</strong>
             </article>
             <article>
-              <span>Pedido minimo</span>
+              <span>Pedido mínimo</span>
               <strong>
                 {settings.wholesaleMinimumQuantity || 0} un. / {currency(settings.wholesaleMinimumAmount)}
               </strong>
             </article>
             <article>
-              <span>Aprovacao</span>
-              <strong>{settings.wholesaleApprovalMode === "automatic" ? "Automatica por CNPJ" : "Revisao manual"}</strong>
+              <span>Aprovação</span>
+              <strong>{settings.wholesaleApprovalMode === "automatic" ? "Automática por CNPJ" : "Revisão manual"}</strong>
             </article>
           </section>
 
@@ -284,7 +274,7 @@ function App() {
             <div className="products-heading">
               <div>
                 <h2>Produtos</h2>
-                <p>{filteredRules.length} produtos/variacoes</p>
+                <p>{filteredRules.length} produtos/variações</p>
               </div>
               <div className="bulk-box">
                 <input
@@ -307,7 +297,7 @@ function App() {
                 aria-label="Buscar produtos"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar produtos por nome, SKU ou variacao"
+                placeholder="Buscar produtos por nome, SKU ou variação"
               />
               <button type="button">Filtrar</button>
               <button type="button">Mais novo</button>
@@ -315,7 +305,7 @@ function App() {
 
             <p className="count-line">
               {selectedIds.length > 0
-                ? `${selectedIds.length} selecionados. O desconto em massa usa o preco normal como base.`
+                ? `${selectedIds.length} selecionados. O desconto em massa usa o preço normal como base.`
                 : "Os produtos abaixo sao puxados do cadastro real da Nuvemshop. O app adiciona apenas as regras de atacado."}
             </p>
 
@@ -338,10 +328,10 @@ function App() {
                     <th>Produto</th>
                     <th>SKU</th>
                     <th>Estoque varejo</th>
-                    <th>Preco normal</th>
-                    <th>Preco atacado</th>
+                    <th>Preço normal</th>
+                    <th>Preço atacado</th>
                     <th>Estoque atacado</th>
-                    <th>Variacao</th>
+                    <th>Variação</th>
                     <th>Acoes</th>
                   </tr>
                 </thead>
@@ -404,7 +394,7 @@ function App() {
           <div className="panel-title">
             <div>
               <h2>Importar e exportar tabela</h2>
-              <p>Atualize preco e estoque de atacado por CSV ou XLSX.</p>
+              <p>Atualize preço e estoque de atacado por CSV ou XLSX.</p>
             </div>
             <a className="button-link" href="/api/rules/export">
               Exportar modelo
@@ -480,8 +470,8 @@ function App() {
           <section className="products-section">
             <div className="panel-title">
               <div>
-                <h2>Configuracoes</h2>
-                <p>Defina o CD usado nas vendas de atacado e o criterio de aprovacao.</p>
+                <h2>Configurações</h2>
+                <p>Defina o CD usado nas vendas de atacado e o critério de aprovação.</p>
               </div>
             </div>
 
@@ -495,7 +485,7 @@ function App() {
                 <input name="wholesaleLocationName" defaultValue={settings.wholesaleLocationName || ""} />
               </label>
               <label>
-                Qtd. minima atacado
+                Qtd. mínima atacado
                 <input
                   name="wholesaleMinimumQuantity"
                   type="number"
@@ -504,7 +494,7 @@ function App() {
                 />
               </label>
               <label>
-                Valor minimo atacado
+                Valor mínimo atacado
                 <input
                   name="wholesaleMinimumAmount"
                   type="number"
@@ -514,10 +504,10 @@ function App() {
                 />
               </label>
               <label>
-                Aprovacao de atacado
+                Aprovação de atacado
                 <select name="wholesaleApprovalMode" defaultValue={settings.wholesaleApprovalMode || "manual"}>
-                  <option value="manual">Revisao manual</option>
-                  <option value="automatic">Automatico com CNPJ valido</option>
+                  <option value="manual">Revisão manual</option>
+                  <option value="automatic">Automático com CNPJ válido</option>
                 </select>
               </label>
               <button className="primary" type="submit">
@@ -526,15 +516,6 @@ function App() {
             </form>
           </section>
 
-          <section className="products-section">
-            <div className="panel-title">
-              <div>
-                <h2>Resultado do teste</h2>
-                <p>Mostra qual CD seria priorizado com a regra atual.</p>
-              </div>
-            </div>
-            <pre>{message}</pre>
-          </section>
         </>
       )}
     </main>

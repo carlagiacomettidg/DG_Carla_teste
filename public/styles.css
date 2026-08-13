@@ -82,8 +82,8 @@ button.primary:hover {
 }
 
 .embedded-admin .shell {
-  width: min(1120px, calc(100% - 24px));
-  padding: 18px 0 32px;
+  width: min(1120px, calc(100% - 48px));
+  padding: 24px 0 36px;
 }
 
 .topbar,
@@ -96,7 +96,7 @@ button.primary:hover {
 
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: 18px;
   border-bottom: 1px solid var(--line);
   margin: 18px 0 16px;
 }
@@ -108,7 +108,8 @@ button.primary:hover {
   background: transparent;
   color: var(--muted);
   font-weight: 700;
-  padding: 0 14px;
+  padding: 0 0 12px;
+  min-height: 36px;
 }
 
 .tabs button.active {
@@ -179,7 +180,7 @@ h1 {
 }
 
 .embedded-admin h1 {
-  font-size: 24px;
+  font-size: 26px;
 }
 
 h2 {
@@ -237,6 +238,13 @@ h2 {
   padding: 0;
   margin-top: 16px;
   overflow: hidden;
+}
+
+.embedded-admin .products-section,
+.embedded-admin .panel,
+.embedded-admin .status-grid article,
+.embedded-admin .summary-strip article {
+  box-shadow: none;
 }
 
 .products-section > .panel-title,
@@ -299,6 +307,17 @@ h2 {
   margin-top: 0;
 }
 
+.admin-feedback {
+  margin: 0 0 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .count-line {
   color: var(--muted);
   font-size: 14px;
@@ -332,6 +351,12 @@ input {
   background: #fff;
 }
 
+input:focus,
+select:focus {
+  outline: 2px solid rgba(0, 80, 216, 0.18);
+  border-color: var(--brand);
+}
+
 select {
   width: 100%;
   min-height: 40px;
@@ -362,9 +387,13 @@ table {
   min-width: 1040px;
 }
 
+.embedded-admin table {
+  min-width: 1080px;
+}
+
 th,
 td {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--soft-line);
   padding: 12px;
   text-align: left;
   font-size: 14px;
@@ -376,6 +405,7 @@ th {
   font-size: 12px;
   text-transform: uppercase;
   background: #f8fafc;
+  font-weight: 800;
 }
 
 tr:last-child td {
@@ -556,6 +586,10 @@ pre {
   border-radius: 8px;
   background: #f8fafc;
   color: #344054;
+}
+
+.embedded-admin pre {
+  display: none;
 }
 
 @media (max-width: 920px) {
