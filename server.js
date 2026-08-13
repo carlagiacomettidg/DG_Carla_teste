@@ -510,7 +510,7 @@ async function handleApi(req, res) {
   return null;
 }
 
-const server = http.createServer(async (req, res) => {
+export default async function handler(req, res) {
   try {
     const handled = await handleApi(req, res);
     if (handled !== null) return;
@@ -518,8 +518,11 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, 500, { error: error.message });
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Venos Nuvemshop App rodando em http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  const server = http.createServer(handler);
+  server.listen(PORT, () => {
+    console.log(`Venos Nuvemshop App rodando em http://localhost:${PORT}`);
+  });
+}
