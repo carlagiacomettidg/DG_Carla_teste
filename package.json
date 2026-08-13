@@ -1,0 +1,17 @@
+{
+  "name": "venos-nuvemshop-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App sob demanda para regras de atacado/varejo por CD na Nuvemshop.",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  }
+}

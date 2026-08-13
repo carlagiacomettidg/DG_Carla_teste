@@ -1,0 +1,90 @@
+const API_BASE = "https://api.nuvemshop.com.br/v1";
+const AUTH_BASE = "https://www.nuvemshop.com.br/apps";
+
+function env(name, fallback = "") {
+  return process.env[name] || fallback;
+}
+
+export function buildInstallUrl() {
+  const clientId = env("NUVEMSHOP_CLIENT_ID");
+  const redirectUri = env("NUVEMSHOP_REDIRECT_URI");
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code"
+  });
+
+  return `${AUTH_BASE}/${clientId}/authorize?${params.toString()}`;
+}
+
+export async function exchangeCodeForToken(code) {
+  const response = await fetch("https://www.nuvemshop.com.br/apps/authorize/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: env("NUVEMSHOP_CLIENT_ID"),
+      client_secret: env("NUVEMSHOP_CLIENT_SECRET"),
+      grant_type: "authorization_code",
+      code
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Falha no OAuth Nuvemshop: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function nuvemshopRequest({ storeId, accessToken, path, method = "GET", body }) {
+  const response = await fetch(`${API_BASE}/${storeId}${path}`, {
+    method,
+    headers: {
+      "Authentication": `bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "User-Agent": env("NUVEMSHOP_USER_AGENT", "VenosModasApp/0.1")
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Nuvemshop API ${response.status}: ${text}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+export function registerLocationBusinessRule({ storeId, accessToken, callbackUrl }) {
+  return nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: "/business_rules/integrations/location",
+    method: "PUT",
+    body: {
+      url: callbackUrl,
+      event: "location/prioritization"
+    }
+  });
+}
+
+export function listLocations({ storeId, accessToken }) {
+  return nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: "/locations"
+  });
+}
+
+export function updateVariantInventory({ storeId, accessToken, productId, variantId, inventoryLevels }) {
+  return nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: `/products/${productId}/variants/${variantId}`,
+    method: "PUT",
+    body: {
+      inventory_levels: inventoryLevels
+    }
+  });
+}
