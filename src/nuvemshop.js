@@ -66,6 +66,9 @@ export async function nuvemshopRequest({ storeId, accessToken, path, method = "G
     if (response.status === 401) {
       throw new Error("Token de acesso da Nuvemshop inválido. Reinstale ou autorize novamente o app na loja Vênus Modas.");
     }
+    if (response.status === 403 && text.includes("read_locations")) {
+      throw new Error("O app não tem permissão para ler centros de distribuição. Ative o escopo read_locations no Portal de Parceiros da Nuvemshop e reinstale o app.");
+    }
     throw new Error(`Nuvemshop API ${response.status}: ${text}`);
   }
 
