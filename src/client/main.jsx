@@ -142,6 +142,15 @@ function App() {
       const nextLocations = await api("/api/locations/sync");
       const list = Array.isArray(nextLocations) ? nextLocations : [];
       setLocations(list);
+      setSettings((current) => {
+        const currentLocation = list.find((item) => String(item.id || "") === String(current.wholesaleLocationId || ""));
+        if (!currentLocation) return current;
+        return {
+          ...current,
+          wholesaleLocationName: String(currentLocation.name || current.wholesaleLocationName || ""),
+          wholesaleLocationAddress: String(currentLocation.address || current.wholesaleLocationAddress || "")
+        };
+      });
       setNotice(
         list.length
           ? `${list.length} centros de distribuição encontrados.`

@@ -144,6 +144,22 @@ function normalizeLocation(location) {
     if (typeof value === "object") return "";
     return String(value).trim();
   };
+  const localized = (value) => {
+    if (typeof value === "string") return clean(value);
+    if (!value || typeof value !== "object") return "";
+    return (
+      clean(value.pt_BR) ||
+      clean(value.pt) ||
+      clean(value.en_US) ||
+      clean(value.en) ||
+      clean(value.es_AR) ||
+      clean(value.es_MX) ||
+      clean(value.es_CL) ||
+      clean(value.es_CO) ||
+      clean(value.es) ||
+      clean(value["*"])
+    );
+  };
   const address =
     typeof location.address === "object" && location.address !== null
       ? [
@@ -170,7 +186,7 @@ function normalizeLocation(location) {
 
   return {
     id: clean(location.id),
-    name: clean(location.name) || clean(location.description) || clean(location.code) || `CD ${clean(location.id)}`,
+    name: localized(location.name) || localized(location.description) || clean(location.code) || `CD ${clean(location.id)}`,
     address: addressParts.join(", "),
     raw: location
   };
