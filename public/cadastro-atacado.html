@@ -3,60 +3,102 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cadastro atacado</title>
+    <title>Cadastro atacado | Venos Modas</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="signup-shell">
-      <section class="signup-panel">
-        <p class="eyebrow">Venos Modas</p>
-        <h1>Solicitar acesso ao atacado</h1>
-        <p>Preencha os dados da empresa para solicitar acesso aos preços de atacado.</p>
+    <main class="signup-page">
+      <section class="signup-card" aria-labelledby="signupTitle">
+        <div class="signup-brand">
+          <span>Venos Modas</span>
+          <strong>Atacado</strong>
+        </div>
 
-        <form id="wholesaleSignupForm" class="signup-form">
+        <div class="signup-copy">
+          <p class="eyebrow">Cadastro empresarial</p>
+          <h1 id="signupTitle">Solicite acesso aos preços de atacado</h1>
+          <p>
+            Envie os dados da sua empresa. A loja vai analisar o cadastro e liberar a
+            visualização dos produtos com preço e estoque de atacado.
+          </p>
+        </div>
+
+        <form id="wholesaleSignupForm" class="signup-form" novalidate>
           <label>
-            Razao social
-            <input name="companyName" required />
+            Razão social
+            <input name="companyName" autocomplete="organization" required />
           </label>
           <label>
-            Nome do responsavel
-            <input name="name" required />
+            Nome do responsável
+            <input name="name" autocomplete="name" required />
           </label>
           <label>
             E-mail
-            <input name="email" type="email" required />
+            <input name="email" type="email" autocomplete="email" required />
           </label>
           <label>
             Telefone
-            <input name="phone" />
+            <input name="phone" autocomplete="tel" placeholder="(00) 00000-0000" />
           </label>
-          <label>
+          <label class="wide">
             CNPJ
-            <input name="cnpj" required />
+            <input name="cnpj" inputmode="numeric" autocomplete="off" placeholder="00.000.000/0000-00" required />
           </label>
-          <button class="primary" type="submit">Enviar solicitacao</button>
+          <button class="primary wide" type="submit">Enviar solicitação</button>
         </form>
 
-        <pre id="signupResult"></pre>
+        <div id="signupResult" class="form-feedback" hidden></div>
       </section>
     </main>
 
     <script>
       const form = document.querySelector("#wholesaleSignupForm");
       const result = document.querySelector("#signupResult");
+      const cnpjInput = form.elements.cnpj;
+
+      function showFeedback(type, text) {
+        result.hidden = false;
+        result.dataset.type = type;
+        result.textContent = text;
+      }
+
+      cnpjInput.addEventListener("input", () => {
+        const numbers = cnpjInput.value.replace(/\D/g, "").slice(0, 14);
+        cnpjInput.value = numbers
+          .replace(/^(\d{2})(\d)/, "$1.$2")
+          .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+          .replace(/\.(\d{3})(\d)/, ".$1/$2")
+          .replace(/(\d{4})(\d)/, "$1-$2");
+      });
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const response = await fetch("/api/wholesale-requests", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(Object.fromEntries(new FormData(form).entries()))
-        });
-        const data = await response.json();
-        result.textContent = response.ok
-          ? "Solicitacao enviada. Aguarde a aprovacao da loja."
-          : data.error || "Nao foi possivel enviar a solicitacao.";
-        if (response.ok) form.reset();
+
+        if (!form.reportValidity()) return;
+
+        const button = form.querySelector("button");
+        button.disabled = true;
+        button.textContent = "Enviando...";
+        showFeedback("loading", "Estamos enviando sua solicitação.");
+
+        try {
+          const response = await fetch("/api/wholesale-requests", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(Object.fromEntries(new FormData(form).entries()))
+          });
+
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Não foi possível enviar a solicitação.");
+
+          form.reset();
+          showFeedback("success", "Solicitação enviada. Aguarde a aprovação da loja para acessar o atacado.");
+        } catch (error) {
+          showFeedback("error", error.message || "Não foi possível enviar a solicitação.");
+        } finally {
+          button.disabled = false;
+          button.textContent = "Enviar solicitação";
+        }
       });
     </script>
   </body>

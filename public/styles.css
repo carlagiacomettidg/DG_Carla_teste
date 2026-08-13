@@ -1,13 +1,17 @@
 :root {
   color-scheme: light;
-  --bg: #f5f7f8;
+  --bg: #f6f7f9;
   --panel: #ffffff;
-  --text: #172026;
-  --muted: #66737f;
-  --line: #d9e0e4;
-  --brand: #0050c8;
-  --brand-dark: #003f9e;
-  --accent: #0050c8;
+  --text: #151922;
+  --muted: #5f6b7a;
+  --line: #d9dfe7;
+  --soft-line: #edf0f4;
+  --brand: #0050d8;
+  --brand-dark: #003fa8;
+  --accent: #0050d8;
+  --success: #0f766e;
+  --warning: #a16207;
+  --danger: #b42318;
 }
 
 * {
@@ -39,12 +43,18 @@ button {
   color: var(--text);
   cursor: pointer;
   padding: 0 14px;
+  font-weight: 600;
 }
 
 button.primary {
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .button-link {
@@ -128,9 +138,9 @@ button.primary:hover {
 }
 
 .status-chip[data-mode="ready"] {
-  border-color: #bbf7d0;
-  color: #166534;
-  background: #f0fdf4;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
 }
 
 .status-chip[data-mode="loading"] {
@@ -362,9 +372,10 @@ td {
 }
 
 th {
-  color: var(--muted);
+  color: #344054;
   font-size: 12px;
   text-transform: uppercase;
+  background: #f8fafc;
 }
 
 tr:last-child td {
@@ -377,7 +388,7 @@ tr:last-child td {
   min-height: 24px;
   border-radius: 999px;
   padding: 0 9px;
-  background: #eef2ff;
+  background: #eff6ff;
   color: #1d4ed8;
   font-size: 12px;
   font-weight: 700;
@@ -408,40 +419,105 @@ tr:last-child td {
   margin-bottom: 16px;
 }
 
-.signup-shell {
+.signup-shell,
+.signup-page {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: var(--bg);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f6f7f9 42%, #eef2f7 100%);
 }
 
-.signup-panel {
-  width: min(620px, 100%);
+.signup-panel,
+.signup-card {
+  width: min(720px, 100%);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  padding: 24px;
+  padding: 28px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
 }
 
-.signup-panel h1 {
+.signup-card {
+  display: grid;
+  gap: 22px;
+}
+
+.signup-brand {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--soft-line);
+  color: var(--brand);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.signup-brand strong {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.signup-panel h1,
+.signup-card h1 {
   margin-bottom: 8px;
 }
 
-.signup-panel > p:not(.eyebrow) {
+.signup-panel > p:not(.eyebrow),
+.signup-copy p:not(.eyebrow) {
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .signup-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
+  gap: 14px;
+  margin-top: 0;
 }
 
 .signup-form button,
-.signup-form label:last-of-type {
+.signup-form label:last-of-type,
+.signup-form .wide {
   grid-column: span 2;
+}
+
+.form-feedback {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.form-feedback[data-type="success"] {
+  border-color: #99f6e4;
+  color: var(--success);
+  background: #f0fdfa;
+}
+
+.form-feedback[data-type="error"] {
+  border-color: #fecaca;
+  color: var(--danger);
+  background: #fef2f2;
+}
+
+.form-feedback[data-type="loading"] {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
 }
 
 .products-table th:first-child,
@@ -472,14 +548,14 @@ tr:last-child td {
 }
 
 pre {
-  min-height: 130px;
+  min-height: 96px;
   overflow: auto;
   margin: 16px 0 0;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #111827;
-  color: #e5e7eb;
+  background: #f8fafc;
+  color: #344054;
 }
 
 @media (max-width: 920px) {
@@ -494,5 +570,28 @@ pre {
   .panel-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .signup-page,
+  .signup-shell {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .signup-card,
+  .signup-panel {
+    padding: 20px;
+  }
+
+  .signup-form {
+    grid-template-columns: 1fr;
+  }
+
+  .signup-form button,
+  .signup-form label:last-of-type,
+  .signup-form .wide {
+    grid-column: span 1;
   }
 }
