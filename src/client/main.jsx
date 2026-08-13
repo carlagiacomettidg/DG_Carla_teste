@@ -1,8 +1,33 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Component, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Download, FileUp, MapPin, Package, RefreshCw, Save, Settings, Upload, Users } from "lucide-react";
 
 const isEmbedded = window.self !== window.top;
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="shell">
+          <div className="admin-feedback">
+            Não foi possível carregar esta tela. Atualize a página e tente novamente.
+          </div>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -130,13 +155,13 @@ function App() {
   }
 
   function selectWholesaleLocation(event) {
-    const id = event.target.value;
-    const location = locations.find((item) => String(item.id) === id);
+    const id = String(event.target.value || "");
+    const location = locations.find((item) => String(item.id || "") === id);
     setSettings((current) => ({
       ...current,
       wholesaleLocationId: id,
-      wholesaleLocationName: location?.name || current.wholesaleLocationName || "",
-      wholesaleLocationAddress: location?.address || current.wholesaleLocationAddress || ""
+      wholesaleLocationName: String(location?.name || current.wholesaleLocationName || ""),
+      wholesaleLocationAddress: String(location?.address || current.wholesaleLocationAddress || "")
     }));
   }
 
@@ -579,19 +604,21 @@ function App() {
               </button>
             </div>
 
-            <form className="form-grid" onSubmit={saveSettings} key={settings.wholesaleLocationId || "settings"}>
+            <form className="form-grid" onSubmit={saveSettings}>
               <label className="wide-field">
                 CD de atacado
                 <select name="wholesaleLocationId" value={settings.wholesaleLocationId || ""} onChange={selectWholesaleLocation}>
                   <option value="">Selecione o centro de distribuição</option>
-                  {settings.wholesaleLocationId && !locations.some((location) => String(location.id) === String(settings.wholesaleLocationId)) && (
-                    <option value={settings.wholesaleLocationId}>
+                  {settings.wholesaleLocationId && !locations.some((location) => String(location.id || "") === String(settings.wholesaleLocationId)) && (
+                    <option value={String(settings.wholesaleLocationId)}>
                       {settings.wholesaleLocationName || `CD ${settings.wholesaleLocationId}`}
                     </option>
                   )}
                   {locations.map((location) => (
-                    <option key={location.id} value={String(location.id)}>
-                      {location.address ? `${location.name || `CD ${location.id}`} - ${location.address}` : location.name || `CD ${location.id}`}
+                    <option key={String(location.id)} value={String(location.id)}>
+                      {String(location.address || "")
+                        ? `${String(location.name || `CD ${location.id}`)} - ${String(location.address)}`
+                        : String(location.name || `CD ${location.id}`)}
                     </option>
                   ))}
                 </select>
@@ -647,4 +674,8 @@ function App() {
   );
 }
 
-createRoot(document.querySelector("#root")).render(<App />);
+createRoot(document.querySelector("#root")).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

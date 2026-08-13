@@ -139,6 +139,11 @@ function isRoute(req, method, pathname) {
 }
 
 function normalizeLocation(location) {
+  const clean = (value) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") return "";
+    return String(value).trim();
+  };
   const address =
     typeof location.address === "object" && location.address !== null
       ? [
@@ -161,11 +166,11 @@ function normalizeLocation(location) {
     location.province,
     location.state,
     location.zipcode || location.postal_code
-  ].filter(Boolean);
+  ].map(clean).filter(Boolean);
 
   return {
-    id: String(location.id || ""),
-    name: location.name || location.description || location.code || `CD ${location.id}`,
+    id: clean(location.id),
+    name: clean(location.name) || clean(location.description) || clean(location.code) || `CD ${clean(location.id)}`,
     address: addressParts.join(", "),
     raw: location
   };
