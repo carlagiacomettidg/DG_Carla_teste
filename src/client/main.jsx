@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import nexo, { connect, iAmReady } from "@tiendanube/nexo";
 
 const isEmbedded = window.self !== window.top;
 
@@ -36,23 +35,21 @@ function App() {
   const [embeddedStatus, setEmbeddedStatus] = useState(isEmbedded ? "Conectando ao admin" : "Painel web");
   const [embeddedMode, setEmbeddedMode] = useState(isEmbedded ? "loading" : "default");
 
-  const nexoClient = useMemo(
-    () =>
-      nexo.create({
-        clientId: "39172",
-        log: false
-      }),
-    []
-  );
-
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
 
     if (!isEmbedded) return;
 
-    connect(nexoClient)
-      .then(() => iAmReady(nexoClient))
-      .then(() => {
+    import("@tiendanube/nexo")
+      .then(async (nexoModule) => {
+        const nexo = nexoModule.default || nexoModule;
+        const nexoClient = nexo.create({
+          clientId: "39172",
+          log: false
+        });
+
+        await nexoModule.connect(nexoClient);
+        nexoModule.iAmReady(nexoClient);
         setEmbeddedStatus("Incorporado ao admin");
         setEmbeddedMode("ready");
       })
@@ -61,7 +58,7 @@ function App() {
         setEmbeddedStatus("Falha no Nexo");
         setEmbeddedMode("warning");
       });
-  }, [nexoClient]);
+  }, []);
 
   useEffect(() => {
     Promise.all([api("/api/settings"), api("/api/rules"), api("/api/wholesale-customers")])
