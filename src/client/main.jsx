@@ -36,6 +36,7 @@ function App() {
   const [discountPercent, setDiscountPercent] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   const [activeView, setActiveView] = useState("products");
+  const [importFileName, setImportFileName] = useState("");
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -105,6 +106,7 @@ function App() {
     }
     setRules(result.rules);
     event.currentTarget.reset();
+    setImportFileName("");
     setNotice(`${result.imported} itens importados com sucesso.`);
   }
 
@@ -401,7 +403,20 @@ function App() {
             </a>
           </div>
           <form className="import-form" onSubmit={importRules}>
-            <input name="file" type="file" accept=".csv,.xlsx" required />
+            <label className="file-picker">
+              <span className="file-picker-button">
+                <span className="file-icon" aria-hidden="true" />
+                Escolher arquivo
+              </span>
+              <span className="file-picker-name">{importFileName || "Nenhum arquivo selecionado"}</span>
+              <input
+                name="file"
+                type="file"
+                accept=".csv,.xlsx"
+                required
+                onChange={(event) => setImportFileName(event.target.files?.[0]?.name || "")}
+              />
+            </label>
             <button className="primary" type="submit">
               Importar planilha
             </button>
