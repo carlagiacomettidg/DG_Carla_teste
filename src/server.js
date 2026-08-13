@@ -138,6 +138,27 @@ function isRoute(req, method, pathname) {
   return req.method === method && url.pathname === pathname;
 }
 
+function normalizeLocation(location) {
+  const addressParts = [
+    location.address,
+    location.street,
+    location.number,
+    location.floor,
+    location.locality,
+    location.city,
+    location.province,
+    location.state,
+    location.zipcode || location.postal_code
+  ].filter(Boolean);
+
+  return {
+    id: String(location.id || ""),
+    name: location.name || location.description || `CD ${location.id}`,
+    address: addressParts.join(", "),
+    raw: location
+  };
+}
+
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -623,7 +644,7 @@ async function handleApi(req, res) {
       storeId: db.store.id,
       accessToken: db.store.accessToken
     });
-    return sendJson(res, 200, locations);
+    return sendJson(res, 200, Array.isArray(locations) ? locations.map(normalizeLocation) : []);
   }
 
   return null;

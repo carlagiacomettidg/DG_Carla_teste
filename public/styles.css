@@ -38,8 +38,12 @@ select {
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: 40px;
-  min-width: 92px;
+  min-width: 104px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
@@ -64,8 +68,9 @@ button:disabled {
 .button-link {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   min-height: 40px;
-  min-width: 92px;
+  min-width: 104px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
@@ -109,6 +114,9 @@ button.primary:hover {
 }
 
 .tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   min-width: auto;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -342,8 +350,13 @@ h2 {
 }
 
 .import-form {
-  grid-template-columns: minmax(0, 1fr) 156px;
+  grid-template-columns: minmax(0, 1fr) 176px;
   align-items: stretch;
+}
+
+.import-form .primary {
+  min-width: 176px;
+  padding: 0 16px;
 }
 
 label {
@@ -446,6 +459,29 @@ select {
   padding: 0 10px;
   color: var(--text);
   background: #fff;
+}
+
+.wide-field {
+  grid-column: span 2;
+}
+
+.readonly-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.readonly-field span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table-wrap {
@@ -719,8 +755,13 @@ pre {
   .status-grid,
   .form-grid,
   .rule-form,
-  .products-toolbar {
+  .products-toolbar,
+  .import-form {
     grid-template-columns: 1fr;
+  }
+
+  .wide-field {
+    grid-column: span 1;
   }
 
   .topbar,

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Download, FileUp, MapPin, Package, RefreshCw, Save, Settings, Upload, Users } from "lucide-react";
 
 const isEmbedded = window.self !== window.top;
 
@@ -37,6 +38,7 @@ function App() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [activeView, setActiveView] = useState("products");
   const [importFileName, setImportFileName] = useState("");
+  const [locations, setLocations] = useState([]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -97,6 +99,24 @@ function App() {
         ? "Cadastro automático por CNPJ ativado."
         : "Aprovação manual pelo painel ativada."
     );
+  }
+
+  async function syncLocations() {
+    setNotice("Buscando centros de distribuição da Nuvemshop...");
+    const nextLocations = await api("/api/locations/sync");
+    setLocations(Array.isArray(nextLocations) ? nextLocations : []);
+    setNotice(`${Array.isArray(nextLocations) ? nextLocations.length : 0} centros de distribuição encontrados.`);
+  }
+
+  function selectWholesaleLocation(event) {
+    const id = event.target.value;
+    const location = locations.find((item) => String(item.id) === id);
+    setSettings((current) => ({
+      ...current,
+      wholesaleLocationId: id,
+      wholesaleLocationName: location?.name || current.wholesaleLocationName || "",
+      wholesaleLocationAddress: location?.address || current.wholesaleLocationAddress || ""
+    }));
   }
 
   async function addRule(event) {
@@ -248,25 +268,33 @@ function App() {
         </div>
         <div className="top-actions">
           <a className="button-link" href="/api/rules/export">
+            <Download size={16} />
             Exportar
           </a>
-          <button onClick={syncProducts}>Sincronizar produtos</button>
+          <button onClick={syncProducts}>
+            <RefreshCw size={16} />
+            Sincronizar produtos
+          </button>
         </div>
       </header>
 
       {notice && <div className="admin-feedback">{notice}</div>}
 
-      <nav className="tabs" aria-label="Se??es do app">
+      <nav className="tabs" aria-label="Seções do app">
         <button className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
+          <Package size={16} />
           Produtos
         </button>
         <button className={activeView === "import" ? "active" : ""} onClick={() => setActiveView("import")}>
+          <FileUp size={16} />
           Importar e exportar
         </button>
         <button className={activeView === "customers" ? "active" : ""} onClick={() => setActiveView("customers")}>
+          <Users size={16} />
           Clientes atacado
         </button>
         <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
+          <Settings size={16} />
           Configurações
         </button>
       </nav>
@@ -352,7 +380,7 @@ function App() {
                     <th>Preço atacado</th>
                     <th>Estoque atacado</th>
                     <th>Variação</th>
-                    <th>A??es</th>
+                    <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -417,6 +445,7 @@ function App() {
               <p>Atualize preço e estoque de atacado por CSV ou XLSX.</p>
             </div>
             <a className="button-link" href="/api/rules/export">
+              <Download size={16} />
               Exportar modelo
             </a>
           </div>
@@ -436,6 +465,7 @@ function App() {
               />
             </label>
             <button className="primary" type="submit">
+              <Upload size={16} />
               Importar planilha
             </button>
           </form>
@@ -449,32 +479,10 @@ function App() {
               <h2>Clientes atacado</h2>
               <p>Clientes reais da Nuvemshop e solicitações de acesso ao atacado.</p>
             </div>
-            <button onClick={syncCustomers}>Sincronizar clientes</button>
-          </div>
-
-          <div className="approval-mode-card">
-            <div>
-              <h3>Modo de liberação do atacado</h3>
-              <p>
-                O cliente precisa estar logado na conta vinculada ao CNPJ para visualizar os preços de atacado.
-              </p>
-            </div>
-            <div className="segmented-control" role="group" aria-label="Modo de aprovação do atacado">
-              <button
-                type="button"
-                className={settings.wholesaleApprovalMode !== "automatic" ? "active" : ""}
-                onClick={() => updateApprovalMode("manual")}
-              >
-                Aprovação manual
-              </button>
-              <button
-                type="button"
-                className={settings.wholesaleApprovalMode === "automatic" ? "active" : ""}
-                onClick={() => updateApprovalMode("automatic")}
-              >
-                Automático por CNPJ
-              </button>
-            </div>
+            <button onClick={syncCustomers}>
+              <RefreshCw size={16} />
+              Sincronizar clientes
+            </button>
           </div>
 
           <div className="notice">
@@ -531,16 +539,40 @@ function App() {
                 <h2>Configurações</h2>
                 <p>Defina o CD usado nas vendas de atacado e o critério de aprovação.</p>
               </div>
+              <button type="button" onClick={syncLocations}>
+                <RefreshCw size={16} />
+                Atualizar CDs
+              </button>
             </div>
 
-            <form className="form-grid" onSubmit={saveSettings}>
-              <label>
-                ID do CD Atacado
-                <input name="wholesaleLocationId" defaultValue={settings.wholesaleLocationId || ""} />
+            <form className="form-grid" onSubmit={saveSettings} key={settings.wholesaleLocationId || "settings"}>
+              <label className="wide-field">
+                CD de atacado
+                <select name="wholesaleLocationId" value={settings.wholesaleLocationId || ""} onChange={selectWholesaleLocation}>
+                  <option value="">Selecione o centro de distribuição</option>
+                  {settings.wholesaleLocationId && !locations.some((location) => String(location.id) === String(settings.wholesaleLocationId)) && (
+                    <option value={settings.wholesaleLocationId}>
+                      {settings.wholesaleLocationName || `CD ${settings.wholesaleLocationId}`}
+                    </option>
+                  )}
+                  {locations.map((location) => (
+                    <option key={location.id} value={String(location.id)}>
+                      {location.address ? `${location.name || `CD ${location.id}`} - ${location.address}` : location.name || `CD ${location.id}`}
+                    </option>
+                  ))}
+                </select>
               </label>
+              <input type="hidden" name="wholesaleLocationName" value={settings.wholesaleLocationName || ""} />
+              <input type="hidden" name="wholesaleLocationAddress" value={settings.wholesaleLocationAddress || ""} />
               <label>
-                Nome do CD Atacado
-                <input name="wholesaleLocationName" defaultValue={settings.wholesaleLocationName || ""} />
+                CD selecionado
+                <div className="readonly-field">
+                  <MapPin size={16} />
+                  <span>
+                    {settings.wholesaleLocationName || settings.wholesaleLocationId || "Nenhum CD selecionado"}
+                    {settings.wholesaleLocationAddress ? ` - ${settings.wholesaleLocationAddress}` : ""}
+                  </span>
+                </div>
               </label>
               <label>
                 Qtd. mínima atacado
@@ -569,6 +601,7 @@ function App() {
                 </select>
               </label>
               <button className="primary" type="submit">
+                <Save size={16} />
                 Salvar
               </button>
             </form>
