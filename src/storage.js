@@ -1,8 +1,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import pg from "pg";
 
 const DATA_DIR = path.resolve("data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
+const STATE_ID = "main";
+const DATABASE_URL = process.env.DATABASE_URL;
+
+let pool;
 
 const initialState = {
   store: {
@@ -44,6 +49,39 @@ const initialState = {
   installs: []
 };
 
+function getPool() {
+  if (!DATABASE_URL) return null;
+  if (!pool) {
+    pool = new pg.Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.POSTGRES_SSL === "false" ? false : { rejectUnauthorized: false }
+    });
+  }
+  return pool;
+}
+
+async function ensurePostgresDb() {
+  const db = getPool();
+  if (!db) return;
+
+  await db.query(`
+    create table if not exists app_state (
+      id text primary key,
+      data jsonb not null,
+      updated_at timestamptz not null default now()
+    )
+  `);
+
+  await db.query(
+    `
+      insert into app_state (id, data)
+      values ($1, $2::jsonb)
+      on conflict (id) do nothing
+    `,
+    [STATE_ID, JSON.stringify(initialState)]
+  );
+}
+
 async function ensureDb() {
   await fs.mkdir(DATA_DIR, { recursive: true });
   try {
@@ -53,10 +91,7 @@ async function ensureDb() {
   }
 }
 
-export async function readDb() {
-  await ensureDb();
-  const raw = await fs.readFile(DB_PATH, "utf8");
-  const db = JSON.parse(raw);
+function mergeWithInitialState(db) {
   return {
     ...initialState,
     ...db,
@@ -70,7 +105,36 @@ export async function readDb() {
   };
 }
 
+export async function readDb() {
+  const postgres = getPool();
+  if (postgres) {
+    await ensurePostgresDb();
+    const result = await postgres.query("select data from app_state where id = $1", [STATE_ID]);
+    return mergeWithInitialState(result.rows[0]?.data || initialState);
+  }
+
+  await ensureDb();
+  const raw = await fs.readFile(DB_PATH, "utf8");
+  const db = JSON.parse(raw);
+  return mergeWithInitialState(db);
+}
+
 export async function writeDb(nextState) {
+  const postgres = getPool();
+  if (postgres) {
+    await ensurePostgresDb();
+    await postgres.query(
+      `
+        update app_state
+        set data = $2::jsonb,
+            updated_at = now()
+        where id = $1
+      `,
+      [STATE_ID, JSON.stringify(nextState)]
+    );
+    return nextState;
+  }
+
   await ensureDb();
   await fs.writeFile(DB_PATH, JSON.stringify(nextState, null, 2));
   return nextState;
