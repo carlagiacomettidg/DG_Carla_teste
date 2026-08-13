@@ -108,7 +108,12 @@ function parseMultipartFile(buffer, contentType) {
 
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  const pathname =
+    url.pathname === "/"
+      ? "/index.html"
+      : url.pathname === "/cadastro-atacado"
+        ? "/cadastro-atacado.html"
+        : url.pathname;
   const resolved = path.resolve(PUBLIC_DIR, `.${pathname}`);
 
   if (!resolved.startsWith(PUBLIC_DIR)) {
