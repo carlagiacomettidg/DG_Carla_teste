@@ -1,0 +1,20 @@
+{
+  "node_modules/@tiendanube/nexo/dist/index.js": {
+    "file": "chunk-TLfs3mgK.js",
+    "name": "dist",
+    "src": "node_modules/@tiendanube/nexo/dist/index.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/client/main.jsx"
+    ]
+  },
+  "src/client/main.jsx": {
+    "file": "app.js",
+    "name": "main",
+    "src": "src/client/main.jsx",
+    "isEntry": true,
+    "dynamicImports": [
+      "node_modules/@tiendanube/nexo/dist/index.js"
+    ]
+  }
+}
