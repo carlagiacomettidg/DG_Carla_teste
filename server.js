@@ -26,6 +26,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
+const APP_VERSION = "2026-08-13-signup-route-v2";
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -141,7 +142,11 @@ async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (isRoute(req, "GET", "/health")) {
-    return sendJson(res, 200, { ok: true, app: "venos-nuvemshop-app" });
+    return sendJson(res, 200, { ok: true, app: "venos-nuvemshop-app", version: APP_VERSION });
+  }
+
+  if (isRoute(req, "GET", "/app-version")) {
+    return sendJson(res, 200, { version: APP_VERSION });
   }
 
   if (isRoute(req, "GET", "/api/public-config")) {
