@@ -12,7 +12,7 @@ let pool;
 const initialState = {
   store: {
     id: "",
-    name: "Venos Modas",
+    name: "Vênus Modas",
     accessToken: "",
     retailLocationId: "",
     wholesaleLocationId: "",

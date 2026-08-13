@@ -516,6 +516,48 @@ tr:last-child td {
   font-size: 14px;
 }
 
+.approval-mode-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin: 0 18px 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.approval-mode-card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.approval-mode-card p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.segmented-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.segmented-control button {
+  min-width: 158px;
+  border: 0;
+  background: transparent;
+}
+
+.segmented-control button.active {
+  background: var(--brand);
+  color: #fff;
+}
+
 .empty-state {
   text-align: center;
   padding: 36px 18px;
@@ -682,8 +724,14 @@ pre {
   }
 
   .topbar,
-  .panel-title {
+  .panel-title,
+  .approval-mode-card {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .segmented-control {
+    width: 100%;
     flex-direction: column;
   }
 }

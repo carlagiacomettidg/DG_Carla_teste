@@ -83,6 +83,22 @@ function App() {
     setNotice("Configurações salvas com sucesso.");
   }
 
+  async function updateApprovalMode(wholesaleApprovalMode) {
+    const nextSettings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        ...settings,
+        wholesaleApprovalMode
+      })
+    });
+    setSettings(nextSettings);
+    setNotice(
+      wholesaleApprovalMode === "automatic"
+        ? "Cadastro automático por CNPJ ativado."
+        : "Aprovação manual pelo painel ativada."
+    );
+  }
+
   async function addRule(event) {
     event.preventDefault();
     const nextRules = await api("/api/rules", {
@@ -199,12 +215,14 @@ function App() {
     setNotice("Teste executado com sucesso.");
   }
 
-  const filteredRules = rules.filter((rule) => {
+  const filteredRules = useMemo(() => rules.filter((rule) => {
     const search = `${rule.sku} ${rule.productName} ${rule.variantName}`.toLowerCase();
     return search.includes(query.toLowerCase());
-  });
-  const allFilteredSelected =
-    filteredRules.length > 0 && filteredRules.every((rule) => selectedIds.includes(String(rule.id)));
+  }), [rules, query]);
+  const allFilteredSelected = useMemo(
+    () => filteredRules.length > 0 && filteredRules.every((rule) => selectedIds.includes(String(rule.id))),
+    [filteredRules, selectedIds]
+  );
 
   function toggleSelect(id) {
     const stringId = String(id);
@@ -238,7 +256,7 @@ function App() {
 
       {notice && <div className="admin-feedback">{notice}</div>}
 
-      <nav className="tabs" aria-label="Secoes do app">
+      <nav className="tabs" aria-label="Se??es do app">
         <button className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
           Produtos
         </button>
@@ -308,7 +326,7 @@ function App() {
             <p className="count-line">
               {selectedIds.length > 0
                 ? `${selectedIds.length} selecionados. O desconto em massa usa o preço normal como base.`
-                : "Os produtos abaixo sao puxados do cadastro real da Nuvemshop. O app adiciona apenas as regras de atacado."}
+                : "Os produtos abaixo s?o puxados do cadastro real da Nuvemshop. O app adiciona apenas as regras de atacado."}
             </p>
 
             {filteredRules.length === 0 ? (
@@ -334,7 +352,7 @@ function App() {
                     <th>Preço atacado</th>
                     <th>Estoque atacado</th>
                     <th>Variação</th>
-                    <th>Acoes</th>
+                    <th>A??es</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -429,13 +447,38 @@ function App() {
           <div className="panel-title">
             <div>
               <h2>Clientes atacado</h2>
-              <p>Clientes reais da Nuvemshop e solicitacoes de acesso atacado.</p>
+              <p>Clientes reais da Nuvemshop e solicitações de acesso ao atacado.</p>
             </div>
             <button onClick={syncCustomers}>Sincronizar clientes</button>
           </div>
 
+          <div className="approval-mode-card">
+            <div>
+              <h3>Modo de liberação do atacado</h3>
+              <p>
+                O cliente precisa estar logado na conta vinculada ao CNPJ para visualizar os preços de atacado.
+              </p>
+            </div>
+            <div className="segmented-control" role="group" aria-label="Modo de aprovação do atacado">
+              <button
+                type="button"
+                className={settings.wholesaleApprovalMode !== "automatic" ? "active" : ""}
+                onClick={() => updateApprovalMode("manual")}
+              >
+                Aprovação manual
+              </button>
+              <button
+                type="button"
+                className={settings.wholesaleApprovalMode === "automatic" ? "active" : ""}
+                onClick={() => updateApprovalMode("automatic")}
+              >
+                Automático por CNPJ
+              </button>
+            </div>
+          </div>
+
           <div className="notice">
-            Link de solicitacao para o cliente: <strong>/cadastro-atacado.html</strong>
+            Link de solicitação para o cliente: <strong>/cadastro-atacado.html</strong>
           </div>
 
           <div className="table-wrap">
@@ -446,7 +489,7 @@ function App() {
                   <th>E-mail</th>
                   <th>CNPJ</th>
                   <th>Origem</th>
-                  <th>Solicitacao</th>
+                  <th>Solicitação</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -459,7 +502,7 @@ function App() {
                     </td>
                     <td>{customer.email || "-"}</td>
                     <td>{customer.cnpj || "-"}</td>
-                    <td>{customer.source === "request" ? "Formulario" : "Nuvemshop"}</td>
+                    <td>{customer.source === "request" ? "Formulário" : "Nuvemshop"}</td>
                     <td>{customer.requestStatus === "pending" ? "Pendente" : "-"}</td>
                     <td>
                       <span className="pill">{customer.approved ? "aprovado" : "pendente"}</span>

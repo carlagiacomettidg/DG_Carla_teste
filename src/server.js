@@ -448,6 +448,8 @@ async function handleApi(req, res) {
 
       customers.forEach((customer) => {
         const existing = byId.get(String(customer.id)) || byEmail.get(String(customer.email || "").toLowerCase());
+        const automaticApproval =
+          state.store?.wholesaleApprovalMode === "automatic" && isValidCnpj(customer.identification || "");
         const payload = {
           nuvemshopCustomerId: String(customer.id),
           name: customer.name || "",
@@ -458,7 +460,7 @@ async function handleApi(req, res) {
           totalSpent: money(customer.total_spent || 0),
           source: existing?.source || "nuvemshop",
           requestStatus: existing?.requestStatus || "none",
-          approved: existing?.approved === true,
+          approved: existing?.approved === true || automaticApproval,
           createdAt: existing?.createdAt || customer.created_at || new Date().toISOString()
         };
 
@@ -520,6 +522,8 @@ async function handleApi(req, res) {
 
     const next = await updateDb((db) => {
       db.wholesaleCustomers ||= [];
+      const automaticApproval = db.store?.wholesaleApprovalMode === "automatic";
+      const requestStatus = automaticApproval ? "approved" : "pending";
       const existing = db.wholesaleCustomers.find(
         (customer) =>
           normalizeDocument(customer.cnpj) === cnpj ||
@@ -533,7 +537,8 @@ async function handleApi(req, res) {
           cnpj,
           phone: body.phone || existing.phone || "",
           companyName: body.companyName || existing.companyName || "",
-          requestStatus: "pending",
+          approved: automaticApproval ? true : existing.approved === true,
+          requestStatus,
           source: "request",
           requestedAt: new Date().toISOString()
         });
@@ -545,8 +550,8 @@ async function handleApi(req, res) {
           email: String(body.email || ""),
           phone: String(body.phone || ""),
           cnpj,
-          approved: false,
-          requestStatus: "pending",
+          approved: automaticApproval,
+          requestStatus,
           source: "request",
           requestedAt: new Date().toISOString(),
           createdAt: new Date().toISOString()
