@@ -11,7 +11,14 @@ async function api(path, options = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text);
+      throw new Error(data.error || text);
+    } catch (error) {
+      if (error.message && error.message !== text) throw error;
+      throw new Error(text);
+    }
   }
 
   return response.json();
