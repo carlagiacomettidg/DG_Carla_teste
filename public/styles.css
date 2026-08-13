@@ -21,6 +21,10 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.embedded-admin body {
+  background: #fff;
+}
+
 button,
 input,
 select {
@@ -53,6 +57,11 @@ button.primary:hover {
   padding: 28px 0 48px;
 }
 
+.embedded-admin .shell {
+  width: min(1120px, calc(100% - 24px));
+  padding: 18px 0 32px;
+}
+
 .topbar,
 .panel-title {
   display: flex;
@@ -61,12 +70,54 @@ button.primary:hover {
   gap: 16px;
 }
 
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-chip[data-mode="ready"] {
+  border-color: #bbf7d0;
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.status-chip[data-mode="loading"] {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.status-chip[data-mode="warning"] {
+  border-color: #fde68a;
+  color: #92400e;
+  background: #fffbeb;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--accent);
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.embedded-admin .eyebrow {
+  display: none;
 }
 
 h1,
@@ -78,6 +129,10 @@ p {
 h1 {
   font-size: 30px;
   line-height: 1.15;
+}
+
+.embedded-admin h1 {
+  font-size: 24px;
 }
 
 h2 {

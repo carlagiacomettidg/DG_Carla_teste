@@ -113,6 +113,13 @@ async function handleApi(req, res) {
     return sendJson(res, 200, { ok: true, app: "venos-nuvemshop-app" });
   }
 
+  if (isRoute(req, "GET", "/api/public-config")) {
+    return sendJson(res, 200, {
+      clientId: process.env.NUVEMSHOP_CLIENT_ID || "39172",
+      embedded: true
+    });
+  }
+
   if (isRoute(req, "GET", "/auth/install")) {
     return sendJson(res, 200, {
       installUrl: buildInstallUrl(),

@@ -10,6 +10,7 @@ MVP de app sob demanda para controlar atacado e varejo com o mesmo SKU, separand
 - Cadastro/aprovacao simples de clientes atacadistas por CNPJ.
 - Lista de clientes atacadistas com aprovacao, remocao de acesso, exclusao e desconto extra.
 - Modo de aprovacao configuravel: revisao manual ou automatico com CNPJ valido.
+- Compatibilidade inicial com app incorporado no admin da Nuvemshop via Nexo.
 - Simulador de checkout para validar a escolha do CD.
 - Endpoint de Business Rules `location/prioritization`.
 - Cliente base da API Nuvemshop para OAuth, locations e inventory levels.
@@ -41,6 +42,7 @@ http://localhost:3000
 
 - `GET /` painel do app.
 - `GET /health` status.
+- `GET /api/public-config` configuracao publica para inicializar o app incorporado.
 - `GET /api/settings` configuracoes da loja/CDs.
 - `PUT /api/settings` salva configuracoes.
 - `GET /api/rules` lista regras por SKU.
