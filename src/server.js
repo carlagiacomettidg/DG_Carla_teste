@@ -17,6 +17,8 @@ import { parseSpreadsheetAsync } from "./importer.js";
 import {
   buildInstallUrl,
   exchangeCodeForToken,
+  listAllCustomers,
+  listAllProducts,
   listLocations,
   registerLocationBusinessRule
 } from "./nuvemshop.js";
@@ -24,6 +26,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
+const APP_VERSION = "2026-08-13-signup-route-v2";
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -41,6 +44,30 @@ function sendJson(res, status, payload) {
 function sendText(res, status, text) {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
   res.end(text);
+}
+
+function sendCsv(res, filename, rows) {
+  const headers = [
+    "product_id",
+    "variant_id",
+    "sku",
+    "produto",
+    "variacao",
+    "preco_varejo",
+    "preco_atacado",
+    "estoque_atacado"
+  ];
+  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const csv = [
+    headers.join(";"),
+    ...rows.map((row) => headers.map((header) => escape(row[header])).join(";"))
+  ].join("\n");
+
+  res.writeHead(200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${filename}"`
+  });
+  res.end(`\uFEFF${csv}`);
 }
 
 async function parseBody(req) {
@@ -82,7 +109,12 @@ function parseMultipartFile(buffer, contentType) {
 
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  const pathname =
+    url.pathname === "/"
+      ? "/index.html"
+      : url.pathname === "/cadastro-atacado"
+        ? "/cadastro-atacado.html"
+        : url.pathname;
   const resolved = path.resolve(PUBLIC_DIR, `.${pathname}`);
 
   if (!resolved.startsWith(PUBLIC_DIR)) {
@@ -110,7 +142,11 @@ async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (isRoute(req, "GET", "/health")) {
-    return sendJson(res, 200, { ok: true, app: "venos-nuvemshop-app" });
+    return sendJson(res, 200, { ok: true, app: "venos-nuvemshop-app", version: APP_VERSION });
+  }
+
+  if (isRoute(req, "GET", "/app-version")) {
+    return sendJson(res, 200, { version: APP_VERSION });
   }
 
   if (isRoute(req, "GET", "/api/public-config")) {
@@ -169,6 +205,106 @@ async function handleApi(req, res) {
   if (isRoute(req, "GET", "/api/rules")) {
     const db = await readDb();
     return sendJson(res, 200, db.rules);
+  }
+
+  if (isRoute(req, "POST", "/api/rules/sync-products")) {
+    const db = await readDb();
+    if (!db.store.id || !db.store.accessToken) {
+      return sendJson(res, 400, { error: "Loja ainda nao conectada via OAuth." });
+    }
+
+    const products = await listAllProducts({
+      storeId: db.store.id,
+      accessToken: db.store.accessToken
+    });
+
+    const flattened = products.flatMap((product) => {
+      const productName = product.name?.pt || product.name?.es || product.name?.en || "";
+      const image = product.images?.[0]?.src || "";
+      return (product.variants || []).map((variant) => ({
+        productId: String(product.id),
+        variantId: String(variant.id),
+        sku: normalizeSku(variant.sku),
+        productName,
+        variantName: (variant.values || [])
+          .map((value) => value.pt || value.es || value.en || "")
+          .filter(Boolean)
+          .join(" / "),
+        image,
+        retailPrice: money(variant.price),
+        wholesalePrice: money(variant.promotional_price || variant.price),
+        retailStock: Number(variant.stock || 0),
+        wholesaleStock: 0,
+        enabled: true
+      }));
+    });
+
+    const next = await updateDb((state) => {
+      const byVariant = new Map((state.rules || []).map((rule) => [String(rule.variantId || rule.sku), rule]));
+      flattened.forEach((item) => {
+        const key = String(item.variantId || item.sku);
+        const current = byVariant.get(key);
+        if (current) {
+          Object.assign(current, {
+            productId: item.productId,
+            variantId: item.variantId,
+            sku: item.sku || current.sku,
+            productName: item.productName || current.productName,
+            variantName: item.variantName,
+            image: item.image,
+            retailPrice: item.retailPrice,
+            retailStock: item.retailStock,
+            wholesalePrice: current.wholesalePrice || item.wholesalePrice,
+            wholesaleStock: current.wholesaleStock ?? item.wholesaleStock,
+            enabled: current.enabled !== false
+          });
+        } else {
+          state.rules.push({ id: randomUUID(), ...item });
+        }
+      });
+      return state;
+    });
+
+    return sendJson(res, 200, {
+      imported: flattened.length,
+      rules: next.rules
+    });
+  }
+
+  if (isRoute(req, "POST", "/api/rules/bulk-discount")) {
+    const body = await parseBody(req);
+    const discountPercent = Number(body.discountPercent || 0);
+    const selectedIds = Array.isArray(body.selectedIds) ? body.selectedIds.map(String) : [];
+    const applyToAll = body.applyToAll === true || selectedIds.length === 0;
+
+    const next = await updateDb((db) => {
+      db.rules = db.rules.map((rule) => {
+        if (!applyToAll && !selectedIds.includes(String(rule.id))) return rule;
+        const basePrice = Number(rule.retailPrice || rule.wholesalePrice || 0);
+        return {
+          ...rule,
+          wholesalePrice: money(basePrice * (1 - discountPercent / 100))
+        };
+      });
+      return db;
+    });
+
+    return sendJson(res, 200, next.rules);
+  }
+
+  if (isRoute(req, "GET", "/api/rules/export")) {
+    const db = await readDb();
+    const rows = (db.rules || []).map((rule) => ({
+      product_id: rule.productId || "",
+      variant_id: rule.variantId || "",
+      sku: rule.sku || "",
+      produto: rule.productName || "",
+      variacao: rule.variantName || "",
+      preco_varejo: rule.retailPrice || "",
+      preco_atacado: rule.wholesalePrice || "",
+      estoque_atacado: rule.wholesaleStock || ""
+    }));
+    return sendCsv(res, "tabela-atacado-venos.csv", rows);
   }
 
   if (isRoute(req, "POST", "/api/rules/import")) {
@@ -290,6 +426,58 @@ async function handleApi(req, res) {
     return sendJson(res, 200, db.wholesaleCustomers || []);
   }
 
+  if (isRoute(req, "POST", "/api/wholesale-customers/sync")) {
+    const db = await readDb();
+    if (!db.store.id || !db.store.accessToken) {
+      return sendJson(res, 400, { error: "Loja ainda nao conectada via OAuth." });
+    }
+
+    const customers = await listAllCustomers({
+      storeId: db.store.id,
+      accessToken: db.store.accessToken
+    });
+
+    const next = await updateDb((state) => {
+      state.wholesaleCustomers ||= [];
+      const byId = new Map(state.wholesaleCustomers.map((customer) => [String(customer.nuvemshopCustomerId || customer.id), customer]));
+      const byEmail = new Map(
+        state.wholesaleCustomers
+          .filter((customer) => customer.email)
+          .map((customer) => [String(customer.email).toLowerCase(), customer])
+      );
+
+      customers.forEach((customer) => {
+        const existing = byId.get(String(customer.id)) || byEmail.get(String(customer.email || "").toLowerCase());
+        const payload = {
+          nuvemshopCustomerId: String(customer.id),
+          name: customer.name || "",
+          email: customer.email || "",
+          cnpj: normalizeDocument(customer.identification || ""),
+          phone: customer.phone || "",
+          totalOrders: Number(customer.total_orders || 0),
+          totalSpent: money(customer.total_spent || 0),
+          source: existing?.source || "nuvemshop",
+          requestStatus: existing?.requestStatus || "none",
+          approved: existing?.approved === true,
+          createdAt: existing?.createdAt || customer.created_at || new Date().toISOString()
+        };
+
+        if (existing) {
+          Object.assign(existing, payload);
+        } else {
+          state.wholesaleCustomers.push({ id: randomUUID(), ...payload });
+        }
+      });
+
+      return state;
+    });
+
+    return sendJson(res, 200, {
+      imported: customers.length,
+      customers: next.wholesaleCustomers || []
+    });
+  }
+
   if (isRoute(req, "POST", "/api/wholesale-customers")) {
     const body = await parseBody(req);
     const cnpj = normalizeDocument(body.cnpj);
@@ -321,6 +509,57 @@ async function handleApi(req, res) {
       return db;
     });
     return sendJson(res, 201, next.wholesaleCustomers);
+  }
+
+  if (isRoute(req, "POST", "/api/wholesale-requests")) {
+    const body = await parseBody(req);
+    const cnpj = normalizeDocument(body.cnpj);
+    if (!isValidCnpj(cnpj)) {
+      return sendJson(res, 400, { error: "CNPJ invalido." });
+    }
+
+    const next = await updateDb((db) => {
+      db.wholesaleCustomers ||= [];
+      const existing = db.wholesaleCustomers.find(
+        (customer) =>
+          normalizeDocument(customer.cnpj) === cnpj ||
+          String(customer.email || "").toLowerCase() === String(body.email || "").toLowerCase()
+      );
+
+      if (existing) {
+        Object.assign(existing, {
+          name: body.name || existing.name,
+          email: body.email || existing.email,
+          cnpj,
+          phone: body.phone || existing.phone || "",
+          companyName: body.companyName || existing.companyName || "",
+          requestStatus: "pending",
+          source: "request",
+          requestedAt: new Date().toISOString()
+        });
+      } else {
+        db.wholesaleCustomers.unshift({
+          id: randomUUID(),
+          name: String(body.name || body.companyName || ""),
+          companyName: String(body.companyName || ""),
+          email: String(body.email || ""),
+          phone: String(body.phone || ""),
+          cnpj,
+          approved: false,
+          requestStatus: "pending",
+          source: "request",
+          requestedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      return db;
+    });
+
+    return sendJson(res, 201, {
+      ok: true,
+      customers: next.wholesaleCustomers
+    });
   }
 
   const customerMatch = url.pathname.match(/^\/api\/wholesale-customers\/([^/]+)$/);
@@ -385,7 +624,7 @@ async function handleApi(req, res) {
   return null;
 }
 
-const server = http.createServer(async (req, res) => {
+export default async function handler(req, res) {
   try {
     const handled = await handleApi(req, res);
     if (handled !== null) return;
@@ -393,8 +632,11 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, 500, { error: error.message });
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Venos Nuvemshop App rodando em http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  const server = http.createServer(handler);
+  server.listen(PORT, () => {
+    console.log(`Venos Nuvemshop App rodando em http://localhost:${PORT}`);
+  });
+}

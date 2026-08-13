@@ -22,30 +22,8 @@ const initialState = {
     wholesaleMinimumAmount: 0,
     wholesaleApprovalMode: "manual"
   },
-  rules: [
-    {
-      id: "rule-demo-blusa",
-      sku: "BLUSA001",
-      variantId: "",
-      productName: "Blusa demo",
-      retailPrice: 129.9,
-      wholesalePrice: 89.9,
-      retailStock: 30,
-      wholesaleStock: 120,
-      enabled: true
-    }
-  ],
-  wholesaleCustomers: [
-    {
-      id: "customer-demo",
-      name: "Cliente atacado demo",
-      email: "compras@cliente.com",
-      cnpj: "11222333000181",
-      approved: true,
-      discountPercent: 0,
-      createdAt: new Date().toISOString()
-    }
-  ],
+  rules: [],
+  wholesaleCustomers: [],
   installs: []
 };
 
@@ -92,6 +70,17 @@ async function ensureDb() {
 }
 
 function mergeWithInitialState(db) {
+  const rules = (db.rules || initialState.rules).filter((rule) => {
+    if (rule.id === "rule-demo-blusa") return false;
+    if (String(rule.productName || "").toLowerCase().includes("demo")) return false;
+    return true;
+  });
+  const wholesaleCustomers = (db.wholesaleCustomers || initialState.wholesaleCustomers).filter((customer) => {
+    if (customer.id === "customer-demo") return false;
+    if (String(customer.name || "").toLowerCase().includes("demo")) return false;
+    return true;
+  });
+
   return {
     ...initialState,
     ...db,
@@ -99,8 +88,8 @@ function mergeWithInitialState(db) {
       ...initialState.store,
       ...(db.store || {})
     },
-    rules: db.rules || initialState.rules,
-    wholesaleCustomers: db.wholesaleCustomers || initialState.wholesaleCustomers,
+    rules,
+    wholesaleCustomers,
     installs: db.installs || []
   };
 }
