@@ -196,6 +196,11 @@ async function handleApi(req, res) {
     });
   }
 
+  if (isRoute(req, "GET", "/auth/start")) {
+    res.writeHead(302, { Location: buildInstallUrl() });
+    return res.end();
+  }
+
   if (isRoute(req, "GET", "/auth/callback")) {
     const code = url.searchParams.get("code");
     if (!code) return sendText(res, 400, "Codigo OAuth ausente.");
@@ -208,7 +213,7 @@ async function handleApi(req, res) {
         db.installs.push({ id: randomUUID(), installedAt: new Date().toISOString(), token });
         return db;
       });
-      return sendText(res, 200, "App instalado. Pode fechar esta janela.");
+      return sendText(res, 200, "App conectado. Pode fechar esta janela e voltar para o painel.");
     } catch (error) {
       return sendText(res, 500, error.message);
     }
@@ -243,7 +248,7 @@ async function handleApi(req, res) {
   if (isRoute(req, "POST", "/api/rules/sync-products")) {
     const db = await readDb();
     if (!db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, { error: "Loja ainda nao conectada via OAuth." });
+      return sendJson(res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
 
     const products = await listAllProducts({
@@ -462,7 +467,7 @@ async function handleApi(req, res) {
   if (isRoute(req, "POST", "/api/wholesale-customers/sync")) {
     const db = await readDb();
     if (!db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, { error: "Loja ainda nao conectada via OAuth." });
+      return sendJson(res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
 
     const customers = await listAllCustomers({
@@ -650,7 +655,7 @@ async function handleApi(req, res) {
   if (isRoute(req, "GET", "/api/locations/sync")) {
     const db = await readDb();
     if (!db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, { error: "Loja ainda nao conectada via OAuth." });
+      return sendJson(res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
     const locations = await listLocations({
       storeId: db.store.id,

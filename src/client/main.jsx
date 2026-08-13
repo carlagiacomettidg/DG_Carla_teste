@@ -264,6 +264,7 @@ function App() {
     () => filteredRules.length > 0 && filteredRules.every((rule) => selectedIds.includes(String(rule.id))),
     [filteredRules, selectedIds]
   );
+  const storeConnected = Boolean(settings.id && settings.accessToken === "configured");
 
   function toggleSelect(id) {
     const stringId = String(id);
@@ -300,6 +301,18 @@ function App() {
       </header>
 
       {notice && <div className="admin-feedback">{notice}</div>}
+
+      {!storeConnected && (
+        <section className="connection-banner">
+          <div>
+            <h2>Conecte a loja Vênus Modas</h2>
+            <p>Para sincronizar produtos, clientes e centros de distribuição, autorize o app na Nuvemshop.</p>
+          </div>
+          <a className="button-link primary-link" href="/auth/start" target="_blank" rel="noreferrer">
+            Conectar loja
+          </a>
+        </section>
+      )}
 
       <nav className="tabs" aria-label="Seções do app">
         <button className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
