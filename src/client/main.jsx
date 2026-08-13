@@ -40,6 +40,9 @@ function App() {
 
     if (!isEmbedded) return;
 
+    window.parent.postMessage({ type: "app/connected" }, "*");
+    window.parent.postMessage({ type: "app/ready" }, "*");
+
     import("@tiendanube/nexo")
       .then(async (nexoModule) => {
         const nexo = nexoModule.default || nexoModule;
