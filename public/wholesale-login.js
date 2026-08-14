@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-13-wholesale-customer-tag-v1";
+  const SCRIPT_VERSION = "2026-08-13-register-only-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
@@ -33,7 +33,7 @@
   }
 
   function isAccountPage() {
-    return /\/account\/(login|register|signup|create)/.test(window.location.pathname);
+    return /\/account\/register\/?$/.test(window.location.pathname);
   }
 
   function createField(label, name, type, placeholder, required) {
@@ -63,7 +63,7 @@
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function tryNativeLogin(email, password) {
+  function tryNativeLogin(loginForm, email, password) {
     const emailInput = loginForm.querySelector('input[type="email"], input[name*="email" i]');
     const passwordInput = loginForm.querySelector('input[type="password"], input[name*="password" i]');
     if (!emailInput || !passwordInput || !email || !password) return false;
@@ -74,7 +74,7 @@
     return true;
   }
 
-  function renderResult({ approved, loginAvailable, email, password }) {
+  function renderResult({ panel, loginForm, approved, loginAvailable, email, password }) {
     const title = approved ? "Cadastro atacado liberado" : "Solicitação enviada";
     const text = approved
       ? "Seu cadastro foi aprovado. Acesse sua conta para visualizar as condições de atacado."
@@ -97,7 +97,7 @@
       accessButton.addEventListener("click", () => {
         accessButton.disabled = true;
         accessButton.textContent = "Acessando...";
-        if (loginAvailable && tryNativeLogin(email, password)) return;
+        if (loginAvailable && tryNativeLogin(loginForm, email, password)) return;
         const result = panel.querySelector(".dg-wholesale-result");
         const help = document.createElement("p");
         help.className = "dg-wholesale-result-help";
@@ -430,6 +430,8 @@
         if (!response.ok) throw new Error(data.error || "Não foi possível enviar a solicitação.");
         if (data.approved) {
           renderResult({
+            panel,
+            loginForm,
             approved: true,
             loginAvailable: data.loginAvailable,
             email: payload.email,
@@ -437,7 +439,7 @@
           });
           return;
         }
-        renderResult({ approved: false });
+        renderResult({ panel, loginForm, approved: false });
       } catch (error) {
         setMessage(message, "error", error.message || "Não foi possível enviar a solicitação.");
       } finally {
