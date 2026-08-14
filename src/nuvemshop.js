@@ -127,7 +127,7 @@ export async function listAllCustomers({ storeId, accessToken }) {
     const batch = await nuvemshopRequest({
       storeId,
       accessToken,
-      path: `/customers?page=${page}&per_page=${perPage}&fields=id,name,email,identification,phone,total_spent,total_orders,last_order_id,created_at`
+      path: `/customers?page=${page}&per_page=${perPage}&fields=id,name,email,identification,phone,total_spent,total_orders,last_order_id,created_at,extra,default_address,addresses`
     });
 
     if (!Array.isArray(batch) || batch.length === 0) break;
@@ -147,6 +147,14 @@ export async function findCustomerByEmail({ storeId, accessToken, email }) {
     path: `/customers?email=${encodeURIComponent(email)}&per_page=1`
   });
   return Array.isArray(customers) ? customers[0] || null : null;
+}
+
+export function getCustomer({ storeId, accessToken, customerId }) {
+  return nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: `/customers/${customerId}`
+  });
 }
 
 export function createCustomer({ storeId, accessToken, customer }) {

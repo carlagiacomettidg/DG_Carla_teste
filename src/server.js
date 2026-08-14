@@ -19,6 +19,7 @@ import {
   createCustomer,
   exchangeCodeForToken,
   findCustomerByEmail,
+  getCustomer,
   listAllCustomers,
   listAllProducts,
   listLocations,
@@ -272,6 +273,54 @@ function buildWholesaleCustomerPayload({ body, email, cnpj, password, address, r
       accepts_marketing: body.acceptsMarketing === true || body.acceptsMarketing === "on" ? "true" : "false"
     })
   });
+}
+
+function customerExtra(customer) {
+  return customer?.extra && typeof customer.extra === "object" ? customer.extra : {};
+}
+
+function isWholesaleNuvemshopCustomer(customer) {
+  const extra = customerExtra(customer);
+  return (
+    String(extra.tipo_cliente || "").toLowerCase() === "atacado" ||
+    String(extra.wholesale || "").toLowerCase() === "true" ||
+    String(extra.aprovacao_atacado || "").toLowerCase() === "approved" ||
+    String(extra.aprovacao_atacado || "").toLowerCase() === "pending"
+  );
+}
+
+function mapNuvemshopWholesaleCustomer(customer) {
+  const extra = customerExtra(customer);
+  const requestStatus = String(extra.aprovacao_atacado || "pending");
+  return {
+    id: String(customer.id),
+    nuvemshopCustomerId: String(customer.id),
+    name: cleanString(customer.name),
+    companyName: cleanString(extra.company_name || extra.razao_social),
+    email: cleanString(customer.email),
+    phone: cleanString(customer.phone),
+    cnpj: normalizeDocument(customer.identification || extra.cnpj || ""),
+    birthdate: cleanString(extra.birthdate || extra.data_nascimento),
+    acceptsMarketing: String(extra.accepts_marketing || "").toLowerCase() === "true",
+    requestStatus,
+    approved: requestStatus === "approved",
+    discountPercent: Number(extra.discount_percent || 0),
+    totalOrders: Number(customer.total_orders || 0),
+    totalSpent: money(customer.total_spent || 0),
+    source: "nuvemshop",
+    createdAt: customer.created_at || new Date().toISOString()
+  };
+}
+
+async function listNuvemshopWholesaleCustomers(db) {
+  if (!db.store?.id || !db.store?.accessToken) {
+    return [];
+  }
+  const customers = await listAllCustomers({
+    storeId: db.store.id,
+    accessToken: db.store.accessToken
+  });
+  return customers.filter(isWholesaleNuvemshopCustomer).map(mapNuvemshopWholesaleCustomer);
 }
 
 async function handleApi(req, res) {
@@ -596,11 +645,12 @@ async function handleApi(req, res) {
   if (isRoute(req, "POST", "/api/simulate-checkout")) {
     const cart = await parseBody(req);
     const db = await readDb();
+    const customers = await listNuvemshopWholesaleCustomers(db);
     const decision = chooseWholesaleLocationPriority({
       cart,
       store: db.store,
       rules: db.rules,
-      customers: db.wholesaleCustomers
+      customers
     });
     return sendJson(req, res, 200, buildLocationPrioritizationResponse(decision));
   }
@@ -608,18 +658,19 @@ async function handleApi(req, res) {
   if (isRoute(req, "POST", "/business-rules/location-prioritization")) {
     const cart = await parseBody(req);
     const db = await readDb();
+    const customers = await listNuvemshopWholesaleCustomers(db);
     const decision = chooseWholesaleLocationPriority({
       cart,
       store: db.store,
       rules: db.rules,
-      customers: db.wholesaleCustomers
+      customers
     });
     return sendJson(req, res, 200, buildLocationPrioritizationResponse(decision));
   }
 
   if (isRoute(req, "GET", "/api/wholesale-customers")) {
     const db = await readDb();
-    return sendJson(req, res, 200, db.wholesaleCustomers || []);
+    return sendJson(req, res, 200, await listNuvemshopWholesaleCustomers(db));
   }
 
   if (isRoute(req, "POST", "/api/wholesale-customers/sync")) {
@@ -628,51 +679,10 @@ async function handleApi(req, res) {
       return sendJson(req, res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
 
-    const customers = await listAllCustomers({
-      storeId: db.store.id,
-      accessToken: db.store.accessToken
-    });
-
-    const next = await updateDb((state) => {
-      state.wholesaleCustomers ||= [];
-      const byId = new Map(state.wholesaleCustomers.map((customer) => [String(customer.nuvemshopCustomerId || customer.id), customer]));
-      const byEmail = new Map(
-        state.wholesaleCustomers
-          .filter((customer) => customer.email)
-          .map((customer) => [String(customer.email).toLowerCase(), customer])
-      );
-
-      customers.forEach((customer) => {
-        const existing = byId.get(String(customer.id)) || byEmail.get(String(customer.email || "").toLowerCase());
-        const automaticApproval =
-          state.store?.wholesaleApprovalMode === "automatic" && isValidCnpj(customer.identification || "");
-        const payload = {
-          nuvemshopCustomerId: String(customer.id),
-          name: customer.name || "",
-          email: customer.email || "",
-          cnpj: normalizeDocument(customer.identification || ""),
-          phone: customer.phone || "",
-          totalOrders: Number(customer.total_orders || 0),
-          totalSpent: money(customer.total_spent || 0),
-          source: existing?.source || "nuvemshop",
-          requestStatus: existing?.requestStatus || "none",
-          approved: existing?.approved === true || automaticApproval,
-          createdAt: existing?.createdAt || customer.created_at || new Date().toISOString()
-        };
-
-        if (existing) {
-          Object.assign(existing, payload);
-        } else {
-          state.wholesaleCustomers.push({ id: randomUUID(), ...payload });
-        }
-      });
-
-      return state;
-    });
-
+    const customers = await listNuvemshopWholesaleCustomers(db);
     return sendJson(req, res, 200, {
       imported: customers.length,
-      customers: next.wholesaleCustomers || []
+      customers
     });
   }
 
@@ -683,30 +693,34 @@ async function handleApi(req, res) {
       return sendJson(req, res, 400, { error: "CNPJ invalido." });
     }
 
-    const next = await updateDb((db) => {
-      db.wholesaleCustomers ||= [];
-      const existing = db.wholesaleCustomers.find((customer) => normalizeDocument(customer.cnpj) === cnpj);
-      if (existing) {
-        Object.assign(existing, {
-          name: body.name || existing.name,
-          email: body.email || existing.email,
-          approved: body.approved ?? existing.approved,
-          discountPercent: Number(body.discountPercent ?? existing.discountPercent ?? 0)
-        });
-      } else {
-        db.wholesaleCustomers.unshift({
-          id: randomUUID(),
-          name: String(body.name || ""),
-          email: String(body.email || ""),
-          cnpj,
-          approved: body.approved !== false,
-          discountPercent: Number(body.discountPercent || 0),
-          createdAt: new Date().toISOString()
-        });
-      }
-      return db;
+    const db = await readDb();
+    if (!db.store.id || !db.store.accessToken) {
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
+    }
+    const email = cleanString(body.email).toLowerCase();
+    const existingCustomer = email
+      ? await findCustomerByEmail({ storeId: db.store.id, accessToken: db.store.accessToken, email })
+      : null;
+    const requestStatus = body.approved === false ? "pending" : "approved";
+    const customerPayload = buildWholesaleCustomerPayload({
+      body,
+      email,
+      cnpj,
+      password: cleanString(body.password),
+      address: buildWholesaleAddress(body),
+      requestStatus
     });
-    return sendJson(req, res, 201, next.wholesaleCustomers);
+    if (existingCustomer) {
+      await updateCustomer({
+        storeId: db.store.id,
+        accessToken: db.store.accessToken,
+        customerId: existingCustomer.id,
+        customer: customerPayload
+      });
+    } else {
+      await createCustomer({ storeId: db.store.id, accessToken: db.store.accessToken, customer: customerPayload });
+    }
+    return sendJson(req, res, 201, await listNuvemshopWholesaleCustomers(db));
   }
 
   if (isRoute(req, "POST", "/api/wholesale-requests")) {
@@ -724,7 +738,14 @@ async function handleApi(req, res) {
     let nuvemshopCustomer = null;
     let customerCreateError = "";
 
-    if (dbBefore.store?.id && dbBefore.store?.accessToken && email && password) {
+    if (!dbBefore.store?.id || !dbBefore.store?.accessToken) {
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
+    }
+    if (!email || !password) {
+      return sendJson(req, res, 400, { error: "Informe e-mail e senha para criar a conta na loja." });
+    }
+
+    if (email && password) {
       try {
         const existingCustomer = await findCustomerByEmail({
           storeId: dbBefore.store.id,
@@ -758,49 +779,22 @@ async function handleApi(req, res) {
       }
     }
 
-    const next = await updateDb((db) => {
-      db.wholesaleCustomers ||= [];
-      const existing = db.wholesaleCustomers.find(
-        (customer) =>
-          normalizeDocument(customer.cnpj) === cnpj ||
-          String(customer.email || "").toLowerCase() === email
-      );
-      const baseCustomer = {
-        name: cleanString(body.name || body.companyName),
-        companyName: cleanString(body.companyName),
-        email,
-        phone: cleanString(body.phone),
-        cnpj,
-        birthdate: cleanString(body.birthdate),
-        address,
-        acceptsMarketing: body.acceptsMarketing === true || body.acceptsMarketing === "on",
-        nuvemshopCustomerId: nuvemshopCustomer?.id || existing?.nuvemshopCustomerId || "",
+    if (customerCreateError) {
+      return sendJson(req, res, 502, {
+        ok: false,
+        error: `Não foi possível criar o cliente na Nuvemshop: ${customerCreateError}`,
+        approved: false,
         customerCreateError,
-        approved: automaticApproval ? true : existing?.approved === true,
-        requestStatus,
-        source: "request",
-        requestedAt: new Date().toISOString()
-      };
-
-      if (existing) {
-        Object.assign(existing, baseCustomer);
-      } else {
-        db.wholesaleCustomers.unshift({
-          id: randomUUID(),
-          ...baseCustomer,
-          createdAt: new Date().toISOString()
-        });
-      }
-
-      return db;
-    });
+        customers: await listNuvemshopWholesaleCustomers(dbBefore)
+      });
+    }
 
     return sendJson(req, res, 201, {
       ok: true,
       approved: automaticApproval,
       loginAvailable: Boolean(automaticApproval && !customerCreateError && password),
       customerCreateError,
-      customers: next.wholesaleCustomers
+      customers: await listNuvemshopWholesaleCustomers(dbBefore)
     });
   }
 
@@ -808,30 +802,47 @@ async function handleApi(req, res) {
   if (customerMatch && req.method === "PUT") {
     const body = await parseBody(req);
     const id = customerMatch[1];
-    const next = await updateDb((db) => {
-      db.wholesaleCustomers ||= [];
-      db.wholesaleCustomers = db.wholesaleCustomers.map((customer) =>
-        customer.id === id
-          ? {
-              ...customer,
-              ...body,
-              discountPercent: Number(body.discountPercent ?? customer.discountPercent ?? 0)
-            }
-          : customer
-      );
-      return db;
+    const db = await readDb();
+    if (!db.store.id || !db.store.accessToken) {
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
+    }
+    const customer = await getCustomer({ storeId: db.store.id, accessToken: db.store.accessToken, customerId: id });
+    const extra = {
+      ...customerExtra(customer),
+      tipo_cliente: "atacado",
+      wholesale: "true",
+      aprovacao_atacado: body.approved === false ? "pending" : "approved",
+      discount_percent: String(Number(body.discountPercent ?? customerExtra(customer).discount_percent ?? 0))
+    };
+    await updateCustomer({
+      storeId: db.store.id,
+      accessToken: db.store.accessToken,
+      customerId: id,
+      customer: { extra }
     });
-    return sendJson(req, res, 200, next.wholesaleCustomers);
+    return sendJson(req, res, 200, await listNuvemshopWholesaleCustomers(db));
   }
 
   if (customerMatch && req.method === "DELETE") {
     const id = customerMatch[1];
-    const next = await updateDb((db) => {
-      db.wholesaleCustomers ||= [];
-      db.wholesaleCustomers = db.wholesaleCustomers.filter((customer) => customer.id !== id);
-      return db;
+    const db = await readDb();
+    if (!db.store.id || !db.store.accessToken) {
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
+    }
+    const customer = await getCustomer({ storeId: db.store.id, accessToken: db.store.accessToken, customerId: id });
+    const extra = {
+      ...customerExtra(customer),
+      tipo_cliente: "",
+      wholesale: "false",
+      aprovacao_atacado: "removed"
+    };
+    await updateCustomer({
+      storeId: db.store.id,
+      accessToken: db.store.accessToken,
+      customerId: id,
+      customer: { extra }
     });
-    return sendJson(req, res, 200, next.wholesaleCustomers);
+    return sendJson(req, res, 200, await listNuvemshopWholesaleCustomers(db));
   }
 
   if (isRoute(req, "POST", "/api/register-business-rule")) {

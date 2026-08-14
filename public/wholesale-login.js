@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-13-register-only-v1";
+  const SCRIPT_VERSION = "2026-08-13-register-result-login-redirect-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
@@ -74,7 +74,7 @@
     return true;
   }
 
-  function renderResult({ panel, loginForm, approved, loginAvailable, email, password }) {
+  function renderResult({ panel, approved }) {
     const title = approved ? "Cadastro atacado liberado" : "Solicitação enviada";
     const text = approved
       ? "Seu cadastro foi aprovado. Acesse sua conta para visualizar as condições de atacado."
@@ -82,6 +82,10 @@
     const action = approved
       ? `<button class="dg-wholesale-submit dg-wholesale-access" type="button">Acessar minha conta de atacado</button>`
       : `<button class="dg-wholesale-submit dg-wholesale-new" type="button">Enviar outro cadastro</button>`;
+    const root = panel.closest(".dg-wholesale-login");
+    const switcher = root?.querySelector(".dg-wholesale-switch");
+    if (switcher) switcher.hidden = true;
+    root?.classList.add("has-result");
 
     panel.innerHTML = `
       <div class="dg-wholesale-result ${approved ? "is-approved" : "is-pending"}">
@@ -95,16 +99,7 @@
     const accessButton = panel.querySelector(".dg-wholesale-access");
     if (accessButton) {
       accessButton.addEventListener("click", () => {
-        accessButton.disabled = true;
-        accessButton.textContent = "Acessando...";
-        if (loginAvailable && tryNativeLogin(loginForm, email, password)) return;
-        const result = panel.querySelector(".dg-wholesale-result");
-        const help = document.createElement("p");
-        help.className = "dg-wholesale-result-help";
-        help.textContent = "Sua conta atacado está liberada. Entre pelo login da loja usando o e-mail e a senha cadastrados.";
-        result.appendChild(help);
-        accessButton.disabled = false;
-        accessButton.textContent = "Acessar minha conta de atacado";
+        window.location.href = "/account/login/";
       });
     }
 
@@ -112,6 +107,10 @@
     if (newButton) {
       newButton.addEventListener("click", () => window.location.reload());
     }
+
+    window.setTimeout(() => {
+      panel.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
   }
 
   function setMessage(box, type, text) {
@@ -134,6 +133,10 @@
         max-width: 650px;
         margin: 0 0 24px;
         font-family: Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-login.has-result {
+        margin-left: auto;
+        margin-right: auto;
       }
       .dg-wholesale-switch {
         display: inline-grid;
@@ -271,8 +274,10 @@
       }
       .dg-wholesale-result {
         display: grid;
-        justify-items: start;
+        justify-items: center;
         gap: 12px;
+        text-align: center;
+        padding: 18px 8px;
       }
       .dg-wholesale-result-icon {
         display: inline-grid;
@@ -431,15 +436,11 @@
         if (data.approved) {
           renderResult({
             panel,
-            loginForm,
-            approved: true,
-            loginAvailable: data.loginAvailable,
-            email: payload.email,
-            password: payload.password
+            approved: true
           });
           return;
         }
-        renderResult({ panel, loginForm, approved: false });
+        renderResult({ panel, approved: false });
       } catch (error) {
         setMessage(message, "error", error.message || "Não foi possível enviar a solicitação.");
       } finally {
