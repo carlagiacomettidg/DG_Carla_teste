@@ -1,6 +1,8 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
+  const SCRIPT_VERSION = "2026-08-13-wholesale-customer-tag-v1";
+  window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
     if (document.readyState === "loading") {
@@ -314,6 +316,7 @@
     const root = document.createElement("section");
     root.className = "dg-wholesale-login";
     root.setAttribute("data-dg-wholesale-login", "true");
+    root.setAttribute("data-dg-version", SCRIPT_VERSION);
 
     const switcher = document.createElement("div");
     switcher.className = "dg-wholesale-switch";

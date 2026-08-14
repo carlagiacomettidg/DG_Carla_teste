@@ -22,7 +22,8 @@ import {
   listAllCustomers,
   listAllProducts,
   listLocations,
-  registerLocationBusinessRule
+  registerLocationBusinessRule,
+  updateCustomer
 } from "./nuvemshop.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -248,6 +249,29 @@ function compactObject(object) {
   return Object.fromEntries(
     Object.entries(object).filter(([, value]) => value !== null && value !== undefined && value !== "")
   );
+}
+
+function buildWholesaleCustomerPayload({ body, email, cnpj, password, address, requestStatus }) {
+  return compactObject({
+    name: cleanString(body.name || body.companyName),
+    email,
+    phone: cleanString(body.phone),
+    identification: cnpj,
+    password: password || undefined,
+    send_email_invite: false,
+    addresses: [compactObject(address)],
+    extra: compactObject({
+      tipo_cliente: "atacado",
+      wholesale: "true",
+      cnpj,
+      company_name: cleanString(body.companyName),
+      razao_social: cleanString(body.companyName),
+      birthdate: cleanString(body.birthdate),
+      data_nascimento: cleanString(body.birthdate),
+      aprovacao_atacado: requestStatus,
+      accepts_marketing: body.acceptsMarketing === true || body.acceptsMarketing === "on" ? "true" : "false"
+    })
+  });
 }
 
 async function handleApi(req, res) {
@@ -696,37 +720,37 @@ async function handleApi(req, res) {
     const address = buildWholesaleAddress(body);
     const dbBefore = await readDb();
     const automaticApproval = dbBefore.store?.wholesaleApprovalMode === "automatic";
+    const requestStatus = automaticApproval ? "approved" : "pending";
     let nuvemshopCustomer = null;
     let customerCreateError = "";
 
-    if (automaticApproval && dbBefore.store?.id && dbBefore.store?.accessToken && email && password) {
+    if (dbBefore.store?.id && dbBefore.store?.accessToken && email && password) {
       try {
         const existingCustomer = await findCustomerByEmail({
           storeId: dbBefore.store.id,
           accessToken: dbBefore.store.accessToken,
           email
         });
+        const customerPayload = buildWholesaleCustomerPayload({
+          body,
+          email,
+          cnpj,
+          password,
+          address,
+          requestStatus
+        });
         if (existingCustomer) {
-          nuvemshopCustomer = existingCustomer;
+          nuvemshopCustomer = await updateCustomer({
+            storeId: dbBefore.store.id,
+            accessToken: dbBefore.store.accessToken,
+            customerId: existingCustomer.id,
+            customer: customerPayload
+          });
         } else {
           nuvemshopCustomer = await createCustomer({
             storeId: dbBefore.store.id,
             accessToken: dbBefore.store.accessToken,
-            customer: compactObject({
-              name: cleanString(body.name || body.companyName),
-              email,
-              phone: cleanString(body.phone),
-              identification: cnpj,
-              password,
-              send_email_invite: false,
-              addresses: [compactObject(address)],
-              extra: compactObject({
-                wholesale: "true",
-                company_name: cleanString(body.companyName),
-                birthdate: cleanString(body.birthdate),
-                accepts_marketing: body.acceptsMarketing === true || body.acceptsMarketing === "on" ? "true" : "false"
-              })
-            })
+            customer: customerPayload
           });
         }
       } catch (error) {
@@ -736,7 +760,6 @@ async function handleApi(req, res) {
 
     const next = await updateDb((db) => {
       db.wholesaleCustomers ||= [];
-      const requestStatus = automaticApproval ? "approved" : "pending";
       const existing = db.wholesaleCustomers.find(
         (customer) =>
           normalizeDocument(customer.cnpj) === cnpj ||

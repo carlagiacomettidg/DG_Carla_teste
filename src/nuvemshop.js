@@ -159,6 +159,16 @@ export function createCustomer({ storeId, accessToken, customer }) {
   });
 }
 
+export function updateCustomer({ storeId, accessToken, customerId, customer }) {
+  return nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: `/customers/${customerId}`,
+    method: "PUT",
+    body: customer
+  });
+}
+
 export function updateVariantInventory({ storeId, accessToken, productId, variantId, inventoryLevels }) {
   return nuvemshopRequest({
     storeId,
