@@ -252,14 +252,12 @@ function compactObject(object) {
   );
 }
 
-function buildWholesaleCustomerPayload({ body, email, cnpj, password, address, requestStatus }) {
+function buildWholesaleCustomerPayload({ body, email, cnpj, address, requestStatus }) {
   return compactObject({
     name: cleanString(body.name || body.companyName),
     email,
     phone: cleanString(body.phone),
     identification: cnpj,
-    password: password || undefined,
-    send_email_invite: false,
     addresses: [compactObject(address)],
     extra: compactObject({
       tipo_cliente: "atacado",
@@ -706,7 +704,6 @@ async function handleApi(req, res) {
       body,
       email,
       cnpj,
-      password: cleanString(body.password),
       address: buildWholesaleAddress(body),
       requestStatus
     });
@@ -730,7 +727,6 @@ async function handleApi(req, res) {
       return sendJson(req, res, 400, { error: "CNPJ invalido." });
     }
     const email = cleanString(body.email).toLowerCase();
-    const password = cleanString(body.password);
     const address = buildWholesaleAddress(body);
     const dbBefore = await readDb();
     const automaticApproval = dbBefore.store?.wholesaleApprovalMode === "automatic";
@@ -741,11 +737,11 @@ async function handleApi(req, res) {
     if (!dbBefore.store?.id || !dbBefore.store?.accessToken) {
       return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
     }
-    if (!email || !password) {
-      return sendJson(req, res, 400, { error: "Informe e-mail e senha para criar a conta na loja." });
+    if (!email) {
+      return sendJson(req, res, 400, { error: "Informe o e-mail para criar a conta na loja." });
     }
 
-    if (email && password) {
+    if (email) {
       try {
         const existingCustomer = await findCustomerByEmail({
           storeId: dbBefore.store.id,
@@ -756,7 +752,6 @@ async function handleApi(req, res) {
           body,
           email,
           cnpj,
-          password,
           address,
           requestStatus
         });
@@ -792,7 +787,7 @@ async function handleApi(req, res) {
     return sendJson(req, res, 201, {
       ok: true,
       approved: automaticApproval,
-      loginAvailable: Boolean(automaticApproval && !customerCreateError && password),
+      loginAvailable: false,
       customerCreateError,
       customers: await listNuvemshopWholesaleCustomers(dbBefore)
     });
