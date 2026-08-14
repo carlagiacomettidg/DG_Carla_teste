@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-14-no-password-api-v1";
+  const SCRIPT_VERSION = "2026-08-14-password-on-create-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
@@ -348,6 +348,8 @@
     const phoneField = createField("Telefone", "phone", "tel", "(00) 00000-0000", false);
     const cnpjField = createField("CNPJ", "cnpj", "text", "00.000.000/0000-00", true);
     const birthdateField = createField("Data de nascimento", "birthdate", "date", "", false);
+    const passwordField = createField("Senha", "password", "password", "Crie uma senha", true);
+    const confirmPasswordField = createField("Confirmar senha", "passwordConfirmation", "password", "Repita a senha", true);
     const zipcodeField = createField("CEP", "zipcode", "text", "00000-000", true);
     const addressField = createField("Endereço", "address", "text", "Rua / Avenida", true);
     const numberField = createField("Número", "number", "text", "123", true);
@@ -365,6 +367,8 @@
       phoneField,
       cnpjField,
       birthdateField,
+      passwordField,
+      confirmPasswordField,
       zipcodeField,
       addressField,
       numberField,
@@ -406,6 +410,14 @@
 
       if (payload.cnpj.length !== 14) {
         setMessage(message, "error", "Confira o CNPJ. Ele precisa ter 14 números.");
+        return;
+      }
+      if (String(payload.password || "").length < 6) {
+        setMessage(message, "error", "Crie uma senha com pelo menos 6 caracteres.");
+        return;
+      }
+      if (payload.password !== payload.passwordConfirmation) {
+        setMessage(message, "error", "A confirmação de senha precisa ser igual à senha.");
         return;
       }
       submit.disabled = true;
