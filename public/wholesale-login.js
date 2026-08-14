@@ -1,0 +1,284 @@
+(function () {
+  const APP_URL = "https://dg-venus-modas.vercel.app";
+  const STORE_NAME = "Vênus Modas";
+
+  function ready(fn) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", fn);
+      return;
+    }
+    fn();
+  }
+
+  function onlyDigits(value) {
+    return String(value || "").replace(/\D/g, "");
+  }
+
+  function formatCnpj(value) {
+    const digits = onlyDigits(value).slice(0, 14);
+    return digits
+      .replace(/^(\d{2})(\d)/, "$1.$2")
+      .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/\.(\d{3})(\d)/, ".$1/$2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+
+  function findLoginForm() {
+    const passwordInput = document.querySelector('input[type="password"]');
+    if (passwordInput) return passwordInput.closest("form");
+    const emailInput = document.querySelector('input[type="email"], input[name*="email" i]');
+    return emailInput ? emailInput.closest("form") : document.querySelector("form");
+  }
+
+  function createField(label, name, type, placeholder, required) {
+    const wrap = document.createElement("label");
+    wrap.className = "dg-wholesale-field";
+    wrap.innerHTML = `
+      <span>${label}</span>
+      <input type="${type}" name="${name}" placeholder="${placeholder || ""}" ${required ? "required" : ""}>
+    `;
+    return wrap;
+  }
+
+  function setMessage(box, type, text) {
+    box.className = `dg-wholesale-message ${type ? `is-${type}` : ""}`;
+    box.textContent = text || "";
+    box.hidden = !text;
+  }
+
+  ready(function () {
+    if (!window.location.pathname.includes("/account/login")) return;
+    if (document.querySelector("[data-dg-wholesale-login]")) return;
+
+    const loginForm = findLoginForm();
+    if (!loginForm) return;
+
+    const style = document.createElement("style");
+    style.textContent = `
+      .dg-wholesale-login {
+        width: 100%;
+        max-width: 650px;
+        margin: 0 0 24px;
+        font-family: Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-switch {
+        display: inline-grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid #d9dfe7;
+        border-radius: 8px;
+        background: #f6f7f9;
+        margin: 0 0 18px;
+      }
+      .dg-wholesale-switch button {
+        min-height: 40px;
+        border: 0;
+        border-radius: 6px;
+        padding: 0 20px;
+        background: transparent;
+        color: #303846;
+        font: 600 14px/1 Poppins, Arial, sans-serif;
+        cursor: pointer;
+        transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+      }
+      .dg-wholesale-switch button:hover {
+        background: #ffffff;
+      }
+      .dg-wholesale-switch button.is-active {
+        background: #0050d8;
+        color: #ffffff;
+        box-shadow: 0 1px 2px rgba(21, 25, 34, .12);
+      }
+      .dg-wholesale-panel {
+        display: none;
+        border: 1px solid #d9dfe7;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 22px;
+        margin: 0 0 22px;
+      }
+      .dg-wholesale-panel.is-open {
+        display: block;
+      }
+      .dg-wholesale-panel h2 {
+        margin: 0 0 6px;
+        color: #151922;
+        font: 700 24px/1.2 Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-panel p {
+        margin: 0 0 18px;
+        color: #5f6b7a;
+        font-size: 14px;
+      }
+      .dg-wholesale-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .dg-wholesale-field {
+        display: grid;
+        gap: 7px;
+        color: #303846;
+        font: 500 13px/1.2 Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-field.is-full {
+        grid-column: 1 / -1;
+      }
+      .dg-wholesale-field input {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid #cfd7e3;
+        border-radius: 6px;
+        background: #fff;
+        color: #151922;
+        padding: 0 13px;
+        font: 400 14px/1 Poppins, Arial, sans-serif;
+        outline: none;
+      }
+      .dg-wholesale-field input:focus {
+        border-color: #0050d8;
+        box-shadow: 0 0 0 3px rgba(0, 80, 216, .12);
+      }
+      .dg-wholesale-submit {
+        width: 100%;
+        min-height: 46px;
+        margin-top: 16px;
+        border: 1px solid #0050d8;
+        border-radius: 6px;
+        background: #0050d8;
+        color: #fff;
+        font: 700 15px/1 Poppins, Arial, sans-serif;
+        cursor: pointer;
+        transition: background .16s ease, transform .08s ease, opacity .16s ease;
+      }
+      .dg-wholesale-submit:hover {
+        background: #003fa8;
+      }
+      .dg-wholesale-submit:active {
+        transform: translateY(1px);
+      }
+      .dg-wholesale-submit:disabled {
+        cursor: not-allowed;
+        opacity: .68;
+      }
+      .dg-wholesale-message {
+        margin-top: 14px;
+        border-radius: 6px;
+        padding: 12px 14px;
+        font: 600 13px/1.45 Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-message.is-success {
+        color: #075e54;
+        background: #e8f8f4;
+        border: 1px solid #b8e4d8;
+      }
+      .dg-wholesale-message.is-error {
+        color: #9b1c1c;
+        background: #fff1f1;
+        border: 1px solid #f4c7c7;
+      }
+      .dg-wholesale-note {
+        margin-top: 12px;
+        color: #5f6b7a;
+        font-size: 12px;
+      }
+      @media (max-width: 680px) {
+        .dg-wholesale-grid {
+          grid-template-columns: 1fr;
+        }
+        .dg-wholesale-switch {
+          width: 100%;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    const root = document.createElement("section");
+    root.className = "dg-wholesale-login";
+    root.setAttribute("data-dg-wholesale-login", "true");
+
+    const switcher = document.createElement("div");
+    switcher.className = "dg-wholesale-switch";
+    switcher.innerHTML = `
+      <button type="button" class="is-active" data-dg-mode="retail">Varejo</button>
+      <button type="button" data-dg-mode="wholesale">Atacado</button>
+    `;
+
+    const panel = document.createElement("form");
+    panel.className = "dg-wholesale-panel";
+    panel.innerHTML = `
+      <h2>Solicitar acesso ao atacado</h2>
+      <p>Preencha os dados da empresa. A ${STORE_NAME} vai liberar os preços de atacado conforme a regra da loja.</p>
+      <div class="dg-wholesale-grid"></div>
+      <button class="dg-wholesale-submit" type="submit">Enviar solicitação</button>
+      <div class="dg-wholesale-message" hidden></div>
+      <div class="dg-wholesale-note">Depois da aprovação, acesse sua conta da loja para visualizar as condições de atacado.</div>
+    `;
+
+    const grid = panel.querySelector(".dg-wholesale-grid");
+    const companyField = createField("Razão social", "companyName", "text", "Nome da empresa", true);
+    const nameField = createField("Nome do responsável", "name", "text", "Seu nome", true);
+    const emailField = createField("E-mail", "email", "email", "email@empresa.com.br", true);
+    const phoneField = createField("Telefone", "phone", "tel", "(00) 00000-0000", false);
+    const cnpjField = createField("CNPJ", "cnpj", "text", "00.000.000/0000-00", true);
+    cnpjField.classList.add("is-full");
+    grid.append(companyField, nameField, emailField, phoneField, cnpjField);
+
+    loginForm.parentNode.insertBefore(root, loginForm);
+    root.append(switcher, panel);
+
+    const buttons = Array.from(switcher.querySelectorAll("button"));
+    function setMode(mode) {
+      buttons.forEach((button) => button.classList.toggle("is-active", button.dataset.dgMode === mode));
+      panel.classList.toggle("is-open", mode === "wholesale");
+      loginForm.style.display = mode === "wholesale" ? "none" : "";
+    }
+
+    switcher.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-dg-mode]");
+      if (!button) return;
+      setMode(button.dataset.dgMode);
+    });
+
+    const cnpjInput = panel.querySelector('input[name="cnpj"]');
+    cnpjInput.addEventListener("input", () => {
+      cnpjInput.value = formatCnpj(cnpjInput.value);
+    });
+
+    panel.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = panel.querySelector(".dg-wholesale-submit");
+      const message = panel.querySelector(".dg-wholesale-message");
+      const formData = new FormData(panel);
+      const payload = Object.fromEntries(formData.entries());
+      payload.cnpj = onlyDigits(payload.cnpj);
+
+      if (payload.cnpj.length !== 14) {
+        setMessage(message, "error", "Confira o CNPJ. Ele precisa ter 14 números.");
+        return;
+      }
+
+      submit.disabled = true;
+      submit.textContent = "Enviando...";
+      setMessage(message, "", "");
+
+      try {
+        const response = await fetch(`${APP_URL}/api/wholesale-requests`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Não foi possível enviar a solicitação.");
+        panel.reset();
+        setMessage(message, "success", "Solicitação enviada. Aguarde a aprovação da loja para acessar os preços de atacado.");
+      } catch (error) {
+        setMessage(message, "error", error.message || "Não foi possível enviar a solicitação.");
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Enviar solicitação";
+      }
+    });
+  });
+})();

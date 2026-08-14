@@ -26,7 +26,11 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-13-signup-route-v2";
+const APP_VERSION = "2026-08-13-store-login-wholesale-v1";
+const allowedCorsOrigins = [
+  "https://venusmodas4.lojavirtualnuvem.com.br",
+  "https://dg-venus-modas.vercel.app"
+];
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -36,13 +40,37 @@ const contentTypes = {
   ".svg": "image/svg+xml"
 };
 
-function sendJson(res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+function getCorsOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return "";
+  if (allowedCorsOrigins.includes(origin)) return origin;
+  try {
+    const hostname = new URL(origin).hostname;
+    if (hostname.endsWith(".lojavirtualnuvem.com.br")) return origin;
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function corsHeaders(req) {
+  const origin = getCorsOrigin(req);
+  if (!origin) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin"
+  };
+}
+
+function sendJson(req, res, status, payload) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(req) });
   res.end(JSON.stringify(payload, null, 2));
 }
 
-function sendText(res, status, text) {
-  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+function sendText(req, res, status, text) {
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(req) });
   res.end(text);
 }
 
@@ -118,7 +146,7 @@ async function serveStatic(req, res) {
   const resolved = path.resolve(PUBLIC_DIR, `.${pathname}`);
 
   if (!resolved.startsWith(PUBLIC_DIR)) {
-    return sendText(res, 403, "Forbidden");
+    return sendText(req, res, 403, "Forbidden");
   }
 
   try {
@@ -129,7 +157,7 @@ async function serveStatic(req, res) {
     });
     res.end(content);
   } catch {
-    sendText(res, 404, "Not found");
+    sendText(req, res, 404, "Not found");
   }
 }
 
@@ -200,22 +228,22 @@ async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (isRoute(req, "GET", "/health")) {
-    return sendJson(res, 200, { ok: true, app: "venos-nuvemshop-app", version: APP_VERSION });
+    return sendJson(req, res, 200, { ok: true, app: "venos-nuvemshop-app", version: APP_VERSION });
   }
 
   if (isRoute(req, "GET", "/app-version")) {
-    return sendJson(res, 200, { version: APP_VERSION });
+    return sendJson(req, res, 200, { version: APP_VERSION });
   }
 
   if (isRoute(req, "GET", "/api/public-config")) {
-    return sendJson(res, 200, {
+    return sendJson(req, res, 200, {
       clientId: process.env.NUVEMSHOP_CLIENT_ID || "39172",
       embedded: true
     });
   }
 
   if (isRoute(req, "GET", "/auth/install")) {
-    return sendJson(res, 200, {
+    return sendJson(req, res, 200, {
       installUrl: buildInstallUrl(),
       note: "Abra esta URL para iniciar o OAuth no Portal de Parceiros/Nuvemshop."
     });
@@ -243,7 +271,7 @@ async function handleApi(req, res) {
       db.installs = [];
       return db;
     });
-    return sendJson(res, 200, { ok: true });
+    return sendJson(req, res, 200, { ok: true });
   }
 
   if (isRoute(req, "POST", "/webhooks/customers-redact")) {
@@ -263,7 +291,7 @@ async function handleApi(req, res) {
       });
       return db;
     });
-    return sendJson(res, 200, { ok: true });
+    return sendJson(req, res, 200, { ok: true });
   }
 
   if (isRoute(req, "POST", "/webhooks/customers-data-request")) {
@@ -278,12 +306,12 @@ async function handleApi(req, res) {
       db.dataRequests = db.dataRequests.slice(0, 100);
       return db;
     });
-    return sendJson(res, 200, { ok: true });
+    return sendJson(req, res, 200, { ok: true });
   }
 
   if (isRoute(req, "GET", "/auth/callback")) {
     const code = url.searchParams.get("code");
-    if (!code) return sendText(res, 400, "Codigo OAuth ausente.");
+    if (!code) return sendText(req, res, 400, "Codigo OAuth ausente.");
 
     try {
       const token = await exchangeCodeForToken(code);
@@ -293,16 +321,16 @@ async function handleApi(req, res) {
         db.installs.push({ id: randomUUID(), installedAt: new Date().toISOString(), token });
         return db;
       });
-      return sendText(res, 200, "App conectado. Pode fechar esta janela e voltar para o painel.");
+      return sendText(req, res, 200, "App conectado. Pode fechar esta janela e voltar para o painel.");
     } catch (error) {
-      return sendText(res, 500, error.message);
+      return sendText(req, res, 500, error.message);
     }
   }
 
   if (isRoute(req, "GET", "/api/settings")) {
     const db = await readDb();
     const safeStore = { ...db.store, accessToken: db.store.accessToken ? "configured" : "" };
-    return sendJson(res, 200, safeStore);
+    return sendJson(req, res, 200, safeStore);
   }
 
   if (isRoute(req, "PUT", "/api/settings")) {
@@ -317,18 +345,18 @@ async function handleApi(req, res) {
       return db;
     });
     const safeStore = { ...next.store, accessToken: next.store.accessToken ? "configured" : "" };
-    return sendJson(res, 200, safeStore);
+    return sendJson(req, res, 200, safeStore);
   }
 
   if (isRoute(req, "GET", "/api/rules")) {
     const db = await readDb();
-    return sendJson(res, 200, db.rules);
+    return sendJson(req, res, 200, db.rules);
   }
 
   if (isRoute(req, "POST", "/api/rules/sync-products")) {
     const db = await readDb();
     if (!db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
 
     const products = await listAllProducts({
@@ -383,7 +411,7 @@ async function handleApi(req, res) {
       return state;
     });
 
-    return sendJson(res, 200, {
+    return sendJson(req, res, 200, {
       imported: flattened.length,
       rules: next.rules
     });
@@ -407,7 +435,7 @@ async function handleApi(req, res) {
       return db;
     });
 
-    return sendJson(res, 200, next.rules);
+    return sendJson(req, res, 200, next.rules);
   }
 
   if (isRoute(req, "GET", "/api/rules/export")) {
@@ -428,11 +456,11 @@ async function handleApi(req, res) {
   if (isRoute(req, "POST", "/api/rules/import")) {
     const raw = await parseRawBody(req);
     const file = parseMultipartFile(raw, req.headers["content-type"] || "");
-    if (!file) return sendJson(res, 400, { error: "Arquivo nao encontrado no upload." });
+    if (!file) return sendJson(req, res, 400, { error: "Arquivo nao encontrado no upload." });
 
     const importedRules = await parseSpreadsheetAsync(file.buffer, file.filename);
     if (!importedRules.length) {
-      return sendJson(res, 400, { error: "Nenhum SKU encontrado na planilha." });
+      return sendJson(req, res, 400, { error: "Nenhum SKU encontrado na planilha." });
     }
 
     const next = await updateDb((db) => {
@@ -458,7 +486,7 @@ async function handleApi(req, res) {
       return db;
     });
 
-    return sendJson(res, 200, {
+    return sendJson(req, res, 200, {
       imported: importedRules.length,
       rules: next.rules
     });
@@ -480,7 +508,7 @@ async function handleApi(req, res) {
       });
       return db;
     });
-    return sendJson(res, 201, next.rules);
+    return sendJson(req, res, 201, next.rules);
   }
 
   const ruleMatch = url.pathname.match(/^\/api\/rules\/([^/]+)$/);
@@ -503,7 +531,7 @@ async function handleApi(req, res) {
       );
       return db;
     });
-    return sendJson(res, 200, next.rules);
+    return sendJson(req, res, 200, next.rules);
   }
 
   if (ruleMatch && req.method === "DELETE") {
@@ -512,7 +540,7 @@ async function handleApi(req, res) {
       db.rules = db.rules.filter((rule) => rule.id !== id);
       return db;
     });
-    return sendJson(res, 200, next.rules);
+    return sendJson(req, res, 200, next.rules);
   }
 
   if (isRoute(req, "POST", "/api/simulate-checkout")) {
@@ -524,7 +552,7 @@ async function handleApi(req, res) {
       rules: db.rules,
       customers: db.wholesaleCustomers
     });
-    return sendJson(res, 200, buildLocationPrioritizationResponse(decision));
+    return sendJson(req, res, 200, buildLocationPrioritizationResponse(decision));
   }
 
   if (isRoute(req, "POST", "/business-rules/location-prioritization")) {
@@ -536,18 +564,18 @@ async function handleApi(req, res) {
       rules: db.rules,
       customers: db.wholesaleCustomers
     });
-    return sendJson(res, 200, buildLocationPrioritizationResponse(decision));
+    return sendJson(req, res, 200, buildLocationPrioritizationResponse(decision));
   }
 
   if (isRoute(req, "GET", "/api/wholesale-customers")) {
     const db = await readDb();
-    return sendJson(res, 200, db.wholesaleCustomers || []);
+    return sendJson(req, res, 200, db.wholesaleCustomers || []);
   }
 
   if (isRoute(req, "POST", "/api/wholesale-customers/sync")) {
     const db = await readDb();
     if (!db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
 
     const customers = await listAllCustomers({
@@ -592,7 +620,7 @@ async function handleApi(req, res) {
       return state;
     });
 
-    return sendJson(res, 200, {
+    return sendJson(req, res, 200, {
       imported: customers.length,
       customers: next.wholesaleCustomers || []
     });
@@ -602,7 +630,7 @@ async function handleApi(req, res) {
     const body = await parseBody(req);
     const cnpj = normalizeDocument(body.cnpj);
     if (!isValidCnpj(cnpj)) {
-      return sendJson(res, 400, { error: "CNPJ invalido." });
+      return sendJson(req, res, 400, { error: "CNPJ invalido." });
     }
 
     const next = await updateDb((db) => {
@@ -628,14 +656,14 @@ async function handleApi(req, res) {
       }
       return db;
     });
-    return sendJson(res, 201, next.wholesaleCustomers);
+    return sendJson(req, res, 201, next.wholesaleCustomers);
   }
 
   if (isRoute(req, "POST", "/api/wholesale-requests")) {
     const body = await parseBody(req);
     const cnpj = normalizeDocument(body.cnpj);
     if (!isValidCnpj(cnpj)) {
-      return sendJson(res, 400, { error: "CNPJ invalido." });
+      return sendJson(req, res, 400, { error: "CNPJ invalido." });
     }
 
     const next = await updateDb((db) => {
@@ -679,7 +707,7 @@ async function handleApi(req, res) {
       return db;
     });
 
-    return sendJson(res, 201, {
+    return sendJson(req, res, 201, {
       ok: true,
       customers: next.wholesaleCustomers
     });
@@ -702,7 +730,7 @@ async function handleApi(req, res) {
       );
       return db;
     });
-    return sendJson(res, 200, next.wholesaleCustomers);
+    return sendJson(req, res, 200, next.wholesaleCustomers);
   }
 
   if (customerMatch && req.method === "DELETE") {
@@ -712,14 +740,14 @@ async function handleApi(req, res) {
       db.wholesaleCustomers = db.wholesaleCustomers.filter((customer) => customer.id !== id);
       return db;
     });
-    return sendJson(res, 200, next.wholesaleCustomers);
+    return sendJson(req, res, 200, next.wholesaleCustomers);
   }
 
   if (isRoute(req, "POST", "/api/register-business-rule")) {
     const db = await readDb();
     const publicUrl = process.env.PUBLIC_APP_URL;
     if (!publicUrl || !db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, {
+      return sendJson(req, res, 400, {
         error: "Configure PUBLIC_APP_URL, store id e access token antes de registrar o callback."
       });
     }
@@ -729,19 +757,19 @@ async function handleApi(req, res) {
       accessToken: db.store.accessToken,
       callbackUrl
     });
-    return sendJson(res, 200, { ok: true, callbackUrl });
+    return sendJson(req, res, 200, { ok: true, callbackUrl });
   }
 
   if (isRoute(req, "GET", "/api/locations/sync")) {
     const db = await readDb();
     if (!db.store.id || !db.store.accessToken) {
-      return sendJson(res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
+      return sendJson(req, res, 400, { error: "Loja ainda não conectada. Clique em Conectar loja e autorize o app na Nuvemshop." });
     }
     const locations = await listLocations({
       storeId: db.store.id,
       accessToken: db.store.accessToken
     });
-    return sendJson(res, 200, Array.isArray(locations) ? locations.map(normalizeLocation) : []);
+    return sendJson(req, res, 200, Array.isArray(locations) ? locations.map(normalizeLocation) : []);
   }
 
   return null;
@@ -749,11 +777,15 @@ async function handleApi(req, res) {
 
 export default async function handler(req, res) {
   try {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsHeaders(req));
+      return res.end();
+    }
     const handled = await handleApi(req, res);
     if (handled !== null) return;
     await serveStatic(req, res);
   } catch (error) {
-    sendJson(res, 500, { error: error.message });
+    sendJson(req, res, 500, { error: error.message });
   }
 }
 
@@ -763,3 +795,4 @@ if (!process.env.VERCEL) {
     console.log(`Venos Nuvemshop App rodando em http://localhost:${PORT}`);
   });
 }
+
