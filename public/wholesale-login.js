@@ -72,6 +72,46 @@
     return true;
   }
 
+  function renderResult({ approved, loginAvailable, email, password }) {
+    const title = approved ? "Cadastro atacado liberado" : "Solicitação enviada";
+    const text = approved
+      ? "Seu cadastro foi aprovado. Acesse sua conta para visualizar as condições de atacado."
+      : "Recebemos seus dados. A loja vai revisar o cadastro e liberar o acesso aos preços de atacado.";
+    const action = approved
+      ? `<button class="dg-wholesale-submit dg-wholesale-access" type="button">Acessar minha conta de atacado</button>`
+      : `<button class="dg-wholesale-submit dg-wholesale-new" type="button">Enviar outro cadastro</button>`;
+
+    panel.innerHTML = `
+      <div class="dg-wholesale-result ${approved ? "is-approved" : "is-pending"}">
+        <div class="dg-wholesale-result-icon">${approved ? "✓" : "!"}</div>
+        <h2>${title}</h2>
+        <p>${text}</p>
+        ${action}
+      </div>
+    `;
+
+    const accessButton = panel.querySelector(".dg-wholesale-access");
+    if (accessButton) {
+      accessButton.addEventListener("click", () => {
+        accessButton.disabled = true;
+        accessButton.textContent = "Acessando...";
+        if (loginAvailable && tryNativeLogin(email, password)) return;
+        const result = panel.querySelector(".dg-wholesale-result");
+        const help = document.createElement("p");
+        help.className = "dg-wholesale-result-help";
+        help.textContent = "Sua conta atacado está liberada. Entre pelo login da loja usando o e-mail e a senha cadastrados.";
+        result.appendChild(help);
+        accessButton.disabled = false;
+        accessButton.textContent = "Acessar minha conta de atacado";
+      });
+    }
+
+    const newButton = panel.querySelector(".dg-wholesale-new");
+    if (newButton) {
+      newButton.addEventListener("click", () => window.location.reload());
+    }
+  }
+
   function setMessage(box, type, text) {
     box.className = `dg-wholesale-message ${type ? `is-${type}` : ""}`;
     box.textContent = text || "";
@@ -227,6 +267,39 @@
         color: #5f6b7a;
         font-size: 12px;
       }
+      .dg-wholesale-result {
+        display: grid;
+        justify-items: start;
+        gap: 12px;
+      }
+      .dg-wholesale-result-icon {
+        display: inline-grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 999px;
+        font: 800 20px/1 Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-result.is-approved .dg-wholesale-result-icon {
+        color: #075e54;
+        background: #e8f8f4;
+        border: 1px solid #b8e4d8;
+      }
+      .dg-wholesale-result.is-pending .dg-wholesale-result-icon {
+        color: #8a5a00;
+        background: #fff6dd;
+        border: 1px solid #f1d58a;
+      }
+      .dg-wholesale-result .dg-wholesale-submit {
+        width: auto;
+        min-width: 260px;
+        margin-top: 4px;
+      }
+      .dg-wholesale-result-help {
+        margin: 0;
+        color: #5f6b7a;
+        font: 600 13px/1.45 Poppins, Arial, sans-serif;
+      }
       @media (max-width: 680px) {
         .dg-wholesale-grid {
           grid-template-columns: 1fr;
@@ -353,16 +426,15 @@
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "Não foi possível enviar a solicitação.");
         if (data.approved) {
-          if (data.loginAvailable) {
-            setMessage(message, "success", "Cadastro atacado liberado. Estamos entrando na sua conta...");
-            if (tryNativeLogin(payload.email, payload.password)) return;
-          }
-          panel.reset();
-          setMessage(message, "success", "Cadastro atacado liberado. Clique em Varejo e entre com o e-mail e senha cadastrados.");
+          renderResult({
+            approved: true,
+            loginAvailable: data.loginAvailable,
+            email: payload.email,
+            password: payload.password
+          });
           return;
         }
-        panel.reset();
-        setMessage(message, "success", "Solicitação enviada. Aguarde a aprovação da loja para acessar os preços de atacado.");
+        renderResult({ approved: false });
       } catch (error) {
         setMessage(message, "error", error.message || "Não foi possível enviar a solicitação.");
       } finally {
