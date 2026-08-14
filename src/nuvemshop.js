@@ -141,12 +141,19 @@ export async function listAllCustomers({ storeId, accessToken }) {
 
 export async function findCustomerByEmail({ storeId, accessToken, email }) {
   if (!email) return null;
-  const customers = await nuvemshopRequest({
-    storeId,
-    accessToken,
-    path: `/customers?email=${encodeURIComponent(email)}&per_page=1`
-  });
-  return Array.isArray(customers) ? customers[0] || null : null;
+  try {
+    const customers = await nuvemshopRequest({
+      storeId,
+      accessToken,
+      path: `/customers?email=${encodeURIComponent(email)}&page=1&per_page=1`
+    });
+    return Array.isArray(customers) ? customers[0] || null : null;
+  } catch (error) {
+    if (String(error.message || "").includes("Last page is 0")) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export function getCustomer({ storeId, accessToken, customerId }) {
