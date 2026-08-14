@@ -127,7 +127,7 @@ export async function listAllCustomers({ storeId, accessToken }) {
     const batch = await nuvemshopRequest({
       storeId,
       accessToken,
-      path: `/customers?page=${page}&per_page=${perPage}&fields=id,name,email,identification,phone,total_spent,total_orders,last_order_id,created_at,extra,default_address,addresses`
+      path: `/customers?page=${page}&per_page=${perPage}&fields=id,name,email,identification,phone,total_spent,last_order_id,created_at,extra,default_address,addresses`
     });
 
     if (!Array.isArray(batch) || batch.length === 0) break;
