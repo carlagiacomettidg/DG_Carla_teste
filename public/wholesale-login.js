@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-14-api-register-v1";
+  const SCRIPT_VERSION = "2026-08-14-api-register-debug-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
@@ -56,7 +56,8 @@
     return wrap;
   }
 
-  function renderResult({ panel, approved, loginAvailable, activationMessage }) {
+  function renderResult({ panel, approved, loginAvailable, activationMessage, customer }) {
+    const customerId = customer?.id ? `Cliente Nuvemshop #${customer.id}` : "Cadastro enviado para a Nuvemshop";
     const title = approved ? "Cadastro atacado recebido" : "Solicitação enviada";
     const text = approved
       ? "Seu cadastro foi salvo na Nuvemshop e marcado como cliente de atacado."
@@ -74,6 +75,7 @@
         <div class="dg-wholesale-result-icon">${approved ? "✓" : "!"}</div>
         <h2>${title}</h2>
         <p>${text}</p>
+        <p class="dg-wholesale-result-help"><strong>${customerId}</strong></p>
         ${action}
         <p class="dg-wholesale-result-help">
           ${activationMessage || (loginAvailable
@@ -104,6 +106,13 @@
     box.className = `dg-wholesale-message ${type ? `is-${type}` : ""}`;
     box.textContent = text || "";
     box.hidden = !text;
+    if (text) box.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function formatTechnicalError({ status, data, error }) {
+    const detail = data?.error || data?.message || error?.message || "Erro desconhecido.";
+    const requestId = data?.requestId ? ` Código: ${data.requestId}.` : "";
+    return `Não foi possível concluir o cadastro. Status: ${status || "sem resposta"}. Motivo: ${detail}.${requestId}`;
   }
 
   ready(function () {
@@ -418,15 +427,21 @@
           body: JSON.stringify(payload)
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || "Não foi possível enviar o cadastro.");
+        if (!response.ok) {
+          throw Object.assign(new Error(data.error || "Não foi possível enviar o cadastro."), {
+            status: response.status,
+            data
+          });
+        }
         renderResult({
           panel,
           approved: data.approved !== false,
           loginAvailable: data.loginAvailable === true,
-          activationMessage: data.activationMessage || ""
+          activationMessage: data.activationMessage || "",
+          customer: data.customer || null
         });
       } catch (error) {
-        setMessage(message, "error", error.message || "Não foi possível enviar o cadastro.");
+        setMessage(message, "error", formatTechnicalError({ status: error.status, data: error.data, error }));
       } finally {
         submit.disabled = false;
         submit.textContent = "Enviar solicitação";

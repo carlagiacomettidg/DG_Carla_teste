@@ -12,6 +12,7 @@ Este arquivo funciona como um banco único de erros do projeto. Sempre que um er
 - [2026-08-14 - Falta de mensagem clara quando cadastro falha](#2026-08-14---falta-de-mensagem-clara-quando-cadastro-falha)
 - [2026-08-14 - Nuvemshop API 401: token inválido](#2026-08-14---nuvemshop-api-401-token-inválido)
 - [2026-08-14 - Nuvemshop API 403: read_locations](#2026-08-14---nuvemshop-api-403-read_locations)
+- [2026-08-14 - Cadastro sem erro visual e sem confirmação na loja](#2026-08-14---cadastro-sem-erro-visual-e-sem-confirmação-na-loja)
 
 ## 2026-08-14 - Nuvemshop API 404: Last page is 0
 
@@ -218,3 +219,31 @@ Ativamos o escopo `read_locations` no Portal de Parceiros da Nuvemshop e reinsta
 
 Corrigido.
 
+## 2026-08-14 - Cadastro sem erro visual e sem confirmação na loja
+
+**Erro**
+
+Não havia uma mensagem clara na tela após enviar o cadastro. Para a usuária, parecia que:
+
+- o cadastro não subia para a Nuvemshop;
+- o login não funcionava;
+- não existia erro visual explicando o motivo.
+
+**Onde apareceu**
+
+- Formulário de cadastro atacado dentro de `/account/register`.
+
+**Motivo**
+
+O endpoint `/api/wholesale-requests` foi testado diretamente e conseguiu criar cliente na Nuvemshop com `active: true`. Portanto, a falha mais provável estava no caminho entre a página da loja e o endpoint, ou na falta de feedback visual da resposta real. O front não mostrava status HTTP, ID do cliente criado nem motivo técnico detalhado quando algo falhava.
+
+**Como corrigimos**
+
+- Atualizamos o script para a versão `2026-08-14-api-register-debug-v1`.
+- A tela passa a mostrar o ID do cliente retornado pela Nuvemshop quando o cadastro dá certo.
+- Quando falha, a tela mostra status HTTP e motivo técnico retornado pelo endpoint.
+- Atualizamos a versão do backend para `2026-08-14-wholesale-debug-v1` para facilitar confirmação de deploy.
+
+**Status**
+
+Em validação.
