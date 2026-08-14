@@ -30,6 +30,10 @@
     return emailInput ? emailInput.closest("form") : document.querySelector("form");
   }
 
+  function isAccountPage() {
+    return /\/account\/(login|register|signup|create)/.test(window.location.pathname);
+  }
+
   function createField(label, name, type, placeholder, required) {
     const wrap = document.createElement("label");
     wrap.className = "dg-wholesale-field";
@@ -47,7 +51,7 @@
   }
 
   ready(function () {
-    if (!window.location.pathname.includes("/account/login")) return;
+    if (!isAccountPage()) return;
     if (document.querySelector("[data-dg-wholesale-login]")) return;
 
     const loginForm = findLoginForm();
