@@ -139,6 +139,26 @@ export async function listAllCustomers({ storeId, accessToken }) {
   return customers;
 }
 
+export async function findCustomerByEmail({ storeId, accessToken, email }) {
+  if (!email) return null;
+  const customers = await nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: `/customers?email=${encodeURIComponent(email)}&per_page=1`
+  });
+  return Array.isArray(customers) ? customers[0] || null : null;
+}
+
+export function createCustomer({ storeId, accessToken, customer }) {
+  return nuvemshopRequest({
+    storeId,
+    accessToken,
+    path: "/customers",
+    method: "POST",
+    body: customer
+  });
+}
+
 export function updateVariantInventory({ storeId, accessToken, productId, variantId, inventoryLevels }) {
   return nuvemshopRequest({
     storeId,

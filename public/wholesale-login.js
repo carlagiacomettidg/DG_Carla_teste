@@ -44,6 +44,34 @@
     return wrap;
   }
 
+  function createCheckbox(label, name) {
+    const wrap = document.createElement("label");
+    wrap.className = "dg-wholesale-check is-full";
+    wrap.innerHTML = `
+      <input type="checkbox" name="${name}">
+      <span>${label}</span>
+    `;
+    return wrap;
+  }
+
+  function fillInput(input, value) {
+    if (!input) return;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function tryNativeLogin(email, password) {
+    const emailInput = loginForm.querySelector('input[type="email"], input[name*="email" i]');
+    const passwordInput = loginForm.querySelector('input[type="password"], input[name*="password" i]');
+    if (!emailInput || !passwordInput || !email || !password) return false;
+    fillInput(emailInput, email);
+    fillInput(passwordInput, password);
+    loginForm.style.display = "";
+    loginForm.submit();
+    return true;
+  }
+
   function setMessage(box, type, text) {
     box.className = `dg-wholesale-message ${type ? `is-${type}` : ""}`;
     box.textContent = text || "";
@@ -144,6 +172,18 @@
         border-color: #0050d8;
         box-shadow: 0 0 0 3px rgba(0, 80, 216, .12);
       }
+      .dg-wholesale-check {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #303846;
+        font: 500 13px/1.35 Poppins, Arial, sans-serif;
+      }
+      .dg-wholesale-check input {
+        width: 16px;
+        height: 16px;
+        accent-color: #0050d8;
+      }
       .dg-wholesale-submit {
         width: 100%;
         min-height: 46px;
@@ -226,8 +266,37 @@
     const emailField = createField("E-mail", "email", "email", "email@empresa.com.br", true);
     const phoneField = createField("Telefone", "phone", "tel", "(00) 00000-0000", false);
     const cnpjField = createField("CNPJ", "cnpj", "text", "00.000.000/0000-00", true);
+    const birthdateField = createField("Data de nascimento", "birthdate", "date", "", false);
+    const passwordField = createField("Senha", "password", "password", "Crie uma senha", true);
+    const confirmPasswordField = createField("Confirmar senha", "passwordConfirmation", "password", "Repita a senha", true);
+    const zipcodeField = createField("CEP", "zipcode", "text", "00000-000", true);
+    const addressField = createField("Endereço", "address", "text", "Rua / Avenida", true);
+    const numberField = createField("Número", "number", "text", "123", true);
+    const complementField = createField("Complemento", "complement", "text", "Sala, loja, bloco", false);
+    const localityField = createField("Bairro", "locality", "text", "Bairro", true);
+    const cityField = createField("Cidade", "city", "text", "Cidade", true);
+    const provinceField = createField("Estado", "province", "text", "UF", true);
+    const marketingField = createCheckbox("Aceito receber novidades e campanhas por e-mail.", "acceptsMarketing");
     cnpjField.classList.add("is-full");
-    grid.append(companyField, nameField, emailField, phoneField, cnpjField);
+    addressField.classList.add("is-full");
+    grid.append(
+      companyField,
+      nameField,
+      emailField,
+      phoneField,
+      cnpjField,
+      birthdateField,
+      passwordField,
+      confirmPasswordField,
+      zipcodeField,
+      addressField,
+      numberField,
+      complementField,
+      localityField,
+      cityField,
+      provinceField,
+      marketingField
+    );
 
     loginForm.parentNode.insertBefore(root, loginForm);
     root.append(switcher, panel);
@@ -262,6 +331,14 @@
         setMessage(message, "error", "Confira o CNPJ. Ele precisa ter 14 números.");
         return;
       }
+      if (String(payload.password || "").length < 6) {
+        setMessage(message, "error", "Crie uma senha com pelo menos 6 caracteres.");
+        return;
+      }
+      if (payload.password !== payload.passwordConfirmation) {
+        setMessage(message, "error", "A confirmação de senha precisa ser igual à senha.");
+        return;
+      }
 
       submit.disabled = true;
       submit.textContent = "Enviando...";
@@ -275,6 +352,13 @@
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "Não foi possível enviar a solicitação.");
+        if (data.approved) {
+          setMessage(message, "success", "Cadastro atacado liberado. Estamos entrando na sua conta...");
+          if (tryNativeLogin(payload.email, payload.password)) return;
+          panel.reset();
+          setMessage(message, "success", "Cadastro atacado liberado. Clique em Varejo e entre com o e-mail e senha cadastrados.");
+          return;
+        }
         panel.reset();
         setMessage(message, "success", "Solicitação enviada. Aguarde a aprovação da loja para acessar os preços de atacado.");
       } catch (error) {

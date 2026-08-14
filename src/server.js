@@ -16,7 +16,9 @@ import {
 import { parseSpreadsheetAsync } from "./importer.js";
 import {
   buildInstallUrl,
+  createCustomer,
   exchangeCodeForToken,
+  findCustomerByEmail,
   listAllCustomers,
   listAllProducts,
   listLocations,
@@ -222,6 +224,30 @@ function normalizeLocation(location) {
 
 function sameStore(store, storeId) {
   return String(store?.id || "") === String(storeId || "");
+}
+
+function cleanString(value) {
+  return String(value || "").trim();
+}
+
+function buildWholesaleAddress(body) {
+  return {
+    zipcode: cleanString(body.zipcode),
+    address: cleanString(body.address),
+    number: cleanString(body.number),
+    floor: cleanString(body.complement),
+    locality: cleanString(body.locality),
+    city: cleanString(body.city),
+    province: cleanString(body.province),
+    country: "BR",
+    phone: cleanString(body.phone)
+  };
+}
+
+function compactObject(object) {
+  return Object.fromEntries(
+    Object.entries(object).filter(([, value]) => value !== null && value !== undefined && value !== "")
+  );
 }
 
 async function handleApi(req, res) {
@@ -665,41 +691,80 @@ async function handleApi(req, res) {
     if (!isValidCnpj(cnpj)) {
       return sendJson(req, res, 400, { error: "CNPJ invalido." });
     }
+    const email = cleanString(body.email).toLowerCase();
+    const password = cleanString(body.password);
+    const address = buildWholesaleAddress(body);
+    const dbBefore = await readDb();
+    const automaticApproval = dbBefore.store?.wholesaleApprovalMode === "automatic";
+    let nuvemshopCustomer = null;
+    let customerCreateError = "";
+
+    if (automaticApproval && dbBefore.store?.id && dbBefore.store?.accessToken && email && password) {
+      try {
+        const existingCustomer = await findCustomerByEmail({
+          storeId: dbBefore.store.id,
+          accessToken: dbBefore.store.accessToken,
+          email
+        });
+        if (existingCustomer) {
+          nuvemshopCustomer = existingCustomer;
+        } else {
+          nuvemshopCustomer = await createCustomer({
+            storeId: dbBefore.store.id,
+            accessToken: dbBefore.store.accessToken,
+            customer: compactObject({
+              name: cleanString(body.name || body.companyName),
+              email,
+              phone: cleanString(body.phone),
+              identification: cnpj,
+              password,
+              send_email_invite: false,
+              addresses: [compactObject(address)],
+              extra: compactObject({
+                wholesale: "true",
+                company_name: cleanString(body.companyName),
+                birthdate: cleanString(body.birthdate),
+                accepts_marketing: body.acceptsMarketing === true || body.acceptsMarketing === "on" ? "true" : "false"
+              })
+            })
+          });
+        }
+      } catch (error) {
+        customerCreateError = error.message;
+      }
+    }
 
     const next = await updateDb((db) => {
       db.wholesaleCustomers ||= [];
-      const automaticApproval = db.store?.wholesaleApprovalMode === "automatic";
       const requestStatus = automaticApproval ? "approved" : "pending";
       const existing = db.wholesaleCustomers.find(
         (customer) =>
           normalizeDocument(customer.cnpj) === cnpj ||
-          String(customer.email || "").toLowerCase() === String(body.email || "").toLowerCase()
+          String(customer.email || "").toLowerCase() === email
       );
+      const baseCustomer = {
+        name: cleanString(body.name || body.companyName),
+        companyName: cleanString(body.companyName),
+        email,
+        phone: cleanString(body.phone),
+        cnpj,
+        birthdate: cleanString(body.birthdate),
+        address,
+        acceptsMarketing: body.acceptsMarketing === true || body.acceptsMarketing === "on",
+        nuvemshopCustomerId: nuvemshopCustomer?.id || existing?.nuvemshopCustomerId || "",
+        customerCreateError,
+        approved: automaticApproval ? true : existing?.approved === true,
+        requestStatus,
+        source: "request",
+        requestedAt: new Date().toISOString()
+      };
 
       if (existing) {
-        Object.assign(existing, {
-          name: body.name || existing.name,
-          email: body.email || existing.email,
-          cnpj,
-          phone: body.phone || existing.phone || "",
-          companyName: body.companyName || existing.companyName || "",
-          approved: automaticApproval ? true : existing.approved === true,
-          requestStatus,
-          source: "request",
-          requestedAt: new Date().toISOString()
-        });
+        Object.assign(existing, baseCustomer);
       } else {
         db.wholesaleCustomers.unshift({
           id: randomUUID(),
-          name: String(body.name || body.companyName || ""),
-          companyName: String(body.companyName || ""),
-          email: String(body.email || ""),
-          phone: String(body.phone || ""),
-          cnpj,
-          approved: automaticApproval,
-          requestStatus,
-          source: "request",
-          requestedAt: new Date().toISOString(),
+          ...baseCustomer,
           createdAt: new Date().toISOString()
         });
       }
@@ -709,6 +774,9 @@ async function handleApi(req, res) {
 
     return sendJson(req, res, 201, {
       ok: true,
+      approved: automaticApproval,
+      loginAvailable: Boolean(automaticApproval && !customerCreateError && password),
+      customerCreateError,
       customers: next.wholesaleCustomers
     });
   }
