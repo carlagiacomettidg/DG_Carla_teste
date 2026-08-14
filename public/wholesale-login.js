@@ -353,8 +353,10 @@
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "Não foi possível enviar a solicitação.");
         if (data.approved) {
-          setMessage(message, "success", "Cadastro atacado liberado. Estamos entrando na sua conta...");
-          if (tryNativeLogin(payload.email, payload.password)) return;
+          if (data.loginAvailable) {
+            setMessage(message, "success", "Cadastro atacado liberado. Estamos entrando na sua conta...");
+            if (tryNativeLogin(payload.email, payload.password)) return;
+          }
           panel.reset();
           setMessage(message, "success", "Cadastro atacado liberado. Clique em Varejo e entre com o e-mail e senha cadastrados.");
           return;
