@@ -1,6 +1,7 @@
 (function () {
+  const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-14-native-register-v2";
+  const SCRIPT_VERSION = "2026-08-14-api-register-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
@@ -55,105 +56,14 @@
     return wrap;
   }
 
-  function fillInput(input, value) {
-    if (!input) return;
-    input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
-  function tryNativeLogin(loginForm, email, password) {
-    const emailInput = loginForm.querySelector('input[type="email"], input[name*="email" i]');
-    const passwordInput = loginForm.querySelector('input[type="password"], input[name*="password" i]');
-    if (!emailInput || !passwordInput || !email || !password) return false;
-    fillInput(emailInput, email);
-    fillInput(passwordInput, password);
-    loginForm.style.display = "";
-    loginForm.submit();
-    return true;
-  }
-
-  function findField(form, patterns) {
-    const fields = Array.from(form.querySelectorAll("input, select, textarea"));
-    return fields.find((field) => {
-      const haystack = `${field.name || ""} ${field.id || ""} ${field.type || ""} ${field.placeholder || ""}`.toLowerCase();
-      return patterns.some((pattern) => haystack.includes(pattern));
-    });
-  }
-
-  function setHidden(form, name, value) {
-    let input = form.querySelector(`input[name="${CSS.escape(name)}"]`);
-    if (!input) {
-      input = document.createElement("input");
-      input.type = "hidden";
-      input.name = name;
-      form.appendChild(input);
-    }
-    input.value = value == null ? "" : String(value);
-  }
-
-  function setNativeValue(form, patterns, fallbackName, value) {
-    const field = findField(form, patterns);
-    if (field) {
-      fillInput(field, value);
-      return;
-    }
-    setHidden(form, fallbackName, value);
-  }
-
-  function submitNativeRegistration(form, payload) {
-    const fullName = payload.name || payload.companyName || "";
-    const cnpj = onlyDigits(payload.cnpj);
-    const approved = "approved";
-
-    setNativeValue(form, ["email"], "email", payload.email);
-    setNativeValue(form, ["password", "senha"], "password", payload.password);
-    setNativeValue(form, ["confirmation", "confirm"], "password_confirmation", payload.passwordConfirmation);
-    setNativeValue(form, ["name", "nome"], "name", fullName);
-    setNativeValue(form, ["phone", "telefone", "celular"], "phone", payload.phone || "");
-    setNativeValue(form, ["identification", "document", "cpf", "cnpj"], "identification", cnpj);
-
-    setHidden(form, "email", payload.email);
-    setHidden(form, "password", payload.password);
-    setHidden(form, "password_confirmation", payload.passwordConfirmation);
-    setHidden(form, "name", fullName);
-    setHidden(form, "phone", payload.phone || "");
-    setHidden(form, "identification", cnpj);
-
-    setHidden(form, "extra[tipo_cliente]", "atacado");
-    setHidden(form, "extra[wholesale]", "true");
-    setHidden(form, "extra[aprovacao_atacado]", approved);
-    setHidden(form, "extra[cnpj]", cnpj);
-    setHidden(form, "extra[company_name]", payload.companyName || "");
-    setHidden(form, "extra[razao_social]", payload.companyName || "");
-    setHidden(form, "extra[birthdate]", payload.birthdate || "");
-    setHidden(form, "extra[data_nascimento]", payload.birthdate || "");
-    setHidden(form, "extra[phone]", payload.phone || "");
-    setHidden(form, "extra[zipcode]", payload.zipcode || "");
-    setHidden(form, "extra[address]", payload.address || "");
-    setHidden(form, "extra[number]", payload.number || "");
-    setHidden(form, "extra[complement]", payload.complement || "");
-    setHidden(form, "extra[locality]", payload.locality || "");
-    setHidden(form, "extra[city]", payload.city || "");
-    setHidden(form, "extra[province]", payload.province || "");
-    setHidden(form, "extra[accepts_marketing]", payload.acceptsMarketing === "on" ? "true" : "false");
-
-    form.style.display = "";
-    if (typeof form.requestSubmit === "function") {
-      form.requestSubmit();
-      return;
-    }
-    form.submit();
-  }
-
-  function renderResult({ panel, approved }) {
-    const title = approved ? "Cadastro atacado liberado" : "Solicitação enviada";
+  function renderResult({ panel, approved, loginAvailable, activationMessage }) {
+    const title = approved ? "Cadastro atacado recebido" : "Solicitação enviada";
     const text = approved
-      ? "Seu cadastro foi aprovado. Acesse a conta da loja com seu e-mail para visualizar as condições de atacado."
+      ? "Seu cadastro foi salvo na Nuvemshop e marcado como cliente de atacado."
       : "Recebemos seus dados. A loja vai revisar o cadastro e liberar o acesso aos preços de atacado.";
-    const action = approved
-      ? `<button class="dg-wholesale-submit dg-wholesale-access" type="button">Acessar minha conta de atacado</button>`
-      : `<button class="dg-wholesale-submit dg-wholesale-new" type="button">Enviar outro cadastro</button>`;
+    const action = loginAvailable
+      ? `<button class="dg-wholesale-submit dg-wholesale-access" type="button">Acessar minha conta</button>`
+      : `<button class="dg-wholesale-submit dg-wholesale-access" type="button">Ir para o login da loja</button>`;
     const root = panel.closest(".dg-wholesale-login");
     const switcher = root?.querySelector(".dg-wholesale-switch");
     if (switcher) switcher.hidden = true;
@@ -165,6 +75,11 @@
         <h2>${title}</h2>
         <p>${text}</p>
         ${action}
+        <p class="dg-wholesale-result-help">
+          ${activationMessage || (loginAvailable
+            ? "Use o e-mail e a senha cadastrados para entrar."
+            : "Se o login ainda não entrar de primeira, use Esqueci minha senha ou aguarde o e-mail de ativação da Nuvemshop.")}
+        </p>
       </div>
     `;
 
@@ -496,7 +411,26 @@
       submit.textContent = "Enviando...";
       setMessage(message, "", "");
 
-      submitNativeRegistration(loginForm, payload);
+      try {
+        const response = await fetch(`${APP_URL}/api/wholesale-requests`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Não foi possível enviar o cadastro.");
+        renderResult({
+          panel,
+          approved: data.approved !== false,
+          loginAvailable: data.loginAvailable === true,
+          activationMessage: data.activationMessage || ""
+        });
+      } catch (error) {
+        setMessage(message, "error", error.message || "Não foi possível enviar o cadastro.");
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Enviar solicitação";
+      }
     });
   });
 })();

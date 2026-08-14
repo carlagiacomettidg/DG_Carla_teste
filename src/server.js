@@ -304,6 +304,7 @@ function mapNuvemshopWholesaleCustomer(customer) {
     acceptsMarketing: String(extra.accepts_marketing || "").toLowerCase() === "true",
     requestStatus,
     approved: requestStatus === "approved",
+    active: customer.active === true,
     discountPercent: Number(extra.discount_percent || 0),
     totalOrders: Number(customer.total_orders || 0),
     totalSpent: money(customer.total_spent || 0),
@@ -735,6 +736,8 @@ async function handleApi(req, res) {
     const requestStatus = automaticApproval ? "approved" : "pending";
     let nuvemshopCustomer = null;
     let customerCreateError = "";
+    let activationMessage = "";
+    let existingInactiveCustomer = false;
 
     if (!dbBefore.store?.id || !dbBefore.store?.accessToken) {
       return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
@@ -770,15 +773,36 @@ async function handleApi(req, res) {
             customer: customerPayload
           });
           if (!existingCustomer.active && !wasWholesale && !existingExtra.tipo_cliente) {
+            existingInactiveCustomer = true;
             customerCreateError =
               "Este e-mail já existe na Nuvemshop, mas ainda não tem senha ativa. Remova esse cliente na Nuvemshop ou use outro e-mail para criar o acesso de atacado.";
           }
         } else {
-          nuvemshopCustomer = await createCustomer({
-            storeId: dbBefore.store.id,
-            accessToken: dbBefore.store.accessToken,
-            customer: customerPayload
-          });
+          try {
+            nuvemshopCustomer = await createCustomer({
+              storeId: dbBefore.store.id,
+              accessToken: dbBefore.store.accessToken,
+              customer: customerPayload
+            });
+          } catch (error) {
+            const message = String(error.message || "");
+            const rejectedAccessFields = message.includes("send_email_invite") || message.includes("password");
+            if (!rejectedAccessFields) throw error;
+            activationMessage =
+              "A Nuvemshop criou o cliente, mas rejeitou criar senha pelo app. O acesso precisa ser ativado pela recuperação de senha/convite da própria Nuvemshop.";
+            nuvemshopCustomer = await createCustomer({
+              storeId: dbBefore.store.id,
+              accessToken: dbBefore.store.accessToken,
+              customer: buildWholesaleCustomerPayload({
+                body,
+                email,
+                cnpj,
+                address,
+                requestStatus,
+                includeAccess: false
+              })
+            });
+          }
         }
       } catch (error) {
         customerCreateError = error.message;
@@ -786,7 +810,7 @@ async function handleApi(req, res) {
     }
 
     if (customerCreateError) {
-      return sendJson(req, res, 502, {
+      return sendJson(req, res, existingInactiveCustomer ? 409 : 502, {
         ok: false,
         error: `Não foi possível criar o cliente na Nuvemshop: ${customerCreateError}`,
         approved: false,
@@ -798,8 +822,10 @@ async function handleApi(req, res) {
     return sendJson(req, res, 201, {
       ok: true,
       approved: automaticApproval,
-      loginAvailable: false,
+      loginAvailable: nuvemshopCustomer?.active === true,
+      activationMessage,
       customerCreateError,
+      customer: nuvemshopCustomer,
       customers: await listNuvemshopWholesaleCustomers(dbBefore)
     });
   }
