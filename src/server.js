@@ -27,11 +27,12 @@ import {
   registerLocationBusinessRule,
   updateCustomer
 } from "./nuvemshop.js";
+import { getTinyStatus, getTinyWholesaleBySku } from "./tiny.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-18-storefront-diagnostics-v1";
+const APP_VERSION = "2026-08-18-tiny-sync-v1";
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -465,6 +466,73 @@ async function handleApi(req, res) {
   if (isRoute(req, "GET", "/api/rules")) {
     const db = await readDb();
     return sendJson(req, res, 200, db.rules);
+  }
+
+  if (isRoute(req, "GET", "/api/tiny/status")) {
+    try {
+      const status = await getTinyStatus();
+      return sendJson(req, res, 200, status);
+    } catch (error) {
+      return sendJson(req, res, 400, { configured: false, error: error.message });
+    }
+  }
+
+  if (isRoute(req, "POST", "/api/tiny/sync-sku")) {
+    const body = await parseBody(req);
+    const sku = normalizeSku(body.sku || process.env.TINY_TEST_SKU || "");
+    if (!sku) {
+      return sendJson(req, res, 400, { error: "Informe um SKU ou configure TINY_TEST_SKU no Vercel." });
+    }
+
+    try {
+      const tinyProduct = await getTinyWholesaleBySku({ sku });
+      const next = await updateDb((db) => {
+        const current = (db.rules || []).find((rule) => normalizeSku(rule.sku) === normalizeSku(tinyProduct.sku));
+
+        if (current) {
+          Object.assign(current, {
+            sku: normalizeSku(tinyProduct.sku),
+            productName: current.productName || tinyProduct.productName,
+            wholesalePrice: money(tinyProduct.wholesalePrice),
+            wholesaleStock: Number(tinyProduct.wholesaleStock || 0),
+            tinyProductId: tinyProduct.productId,
+            tinyPriceListId: tinyProduct.priceList.id,
+            tinyPriceListName: tinyProduct.priceList.name,
+            tinyStockDepositName: tinyProduct.stockDeposit?.name || process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado",
+            tinySyncedAt: new Date().toISOString(),
+            enabled: current.enabled !== false
+          });
+        } else {
+          db.rules ||= [];
+          db.rules.unshift({
+            id: randomUUID(),
+            sku: normalizeSku(tinyProduct.sku),
+            productName: tinyProduct.productName,
+            variantName: "",
+            retailPrice: 0,
+            retailStock: 0,
+            wholesalePrice: money(tinyProduct.wholesalePrice),
+            wholesaleStock: Number(tinyProduct.wholesaleStock || 0),
+            tinyProductId: tinyProduct.productId,
+            tinyPriceListId: tinyProduct.priceList.id,
+            tinyPriceListName: tinyProduct.priceList.name,
+            tinyStockDepositName: tinyProduct.stockDeposit?.name || process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado",
+            tinySyncedAt: new Date().toISOString(),
+            enabled: true
+          });
+        }
+
+        return db;
+      });
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        tinyProduct,
+        rules: next.rules
+      });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
   }
 
   if (isRoute(req, "GET", "/api/storefront-wholesale-context")) {

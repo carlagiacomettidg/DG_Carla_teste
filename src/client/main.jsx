@@ -1,6 +1,6 @@
 import React, { Component, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Download, FileUp, MapPin, Package, RefreshCw, Save, Settings, Upload, Users } from "lucide-react";
+import { Database, Download, FileUp, MapPin, Package, RefreshCw, Save, Settings, Upload, Users } from "lucide-react";
 
 const isEmbedded = window.self !== window.top;
 
@@ -76,6 +76,7 @@ function App() {
   const [customersLoaded, setCustomersLoaded] = useState(false);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [visibleRuleCount, setVisibleRuleCount] = useState(80);
+  const [tinyLoading, setTinyLoading] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -238,6 +239,22 @@ function App() {
     setNotice(`${result.imported} produtos/variações sincronizados.`);
   }
 
+  async function syncTinyTestSku() {
+    setTinyLoading(true);
+    setNotice("Buscando preço e estoque de atacado no Tiny...");
+    try {
+      const result = await api("/api/tiny/sync-sku", { method: "POST", body: JSON.stringify({}) });
+      setRules(result.rules);
+      setNotice(
+        `Tiny sincronizado: SKU ${result.tinyProduct.sku}, preço ${currency(result.tinyProduct.wholesalePrice)}, estoque ${result.tinyProduct.wholesaleStock}.`
+      );
+    } catch (error) {
+      setNotice(error.message || "Não foi possível sincronizar o Tiny.");
+    } finally {
+      setTinyLoading(false);
+    }
+  }
+
   async function syncCustomers() {
     setNotice("Sincronizando clientes da Nuvemshop...");
     setCustomersLoading(true);
@@ -386,6 +403,10 @@ function App() {
           <button onClick={syncProducts}>
             <RefreshCw size={16} />
             Sincronizar produtos
+          </button>
+          <button onClick={syncTinyTestSku} disabled={tinyLoading}>
+            <Database size={16} />
+            {tinyLoading ? "Sincronizando..." : "Sincronizar Tiny"}
           </button>
         </div>
       </header>

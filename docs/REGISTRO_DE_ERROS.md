@@ -329,3 +329,30 @@ O script dependia de conseguir identificar rapidamente o cliente logado e casar 
 **Status**
 
 Em validação. Se `window.DG_WHOLESALE_DEBUG` indicar `customer_not_found_in_storefront`, o tema/script da Nuvemshop não está expondo o cliente logado para o JavaScript externo. Se indicar `no_matching_price_nodes`, o próximo ajuste deve ser feito nos seletores/HTML reais do produto.
+
+## 2026-08-18 - Integração Tiny por token ainda não existia no app
+
+**Erro**
+
+As variáveis `TINY_API_TOKEN`, `TINY_PRICE_LIST_NAME`, `TINY_STOCK_DEPOSIT_NAME` e `TINY_TEST_SKU` foram configuradas no Vercel, mas o app ainda não tinha endpoints para consultar o Tiny/Olist e atualizar preço/estoque de atacado.
+
+**Onde apareceu**
+
+- Fluxo de teste Tiny/Olist com lista de preço `Atacado`, depósito `Atacado` e SKU `GA1903X-1`.
+
+**Motivo**
+
+O código anterior só sincronizava produtos da Nuvemshop e importação por planilha. Não existia módulo de API Tiny, nem chamada para buscar lista de preço, produto por SKU, exceção de preço e estoque por depósito.
+
+**Como corrigimos**
+
+- Criamos `src/tiny.js` usando a API V2 oficial do Tiny/Olist por token.
+- Adicionamos `/api/tiny/status` para validar configuração.
+- Adicionamos `/api/tiny/sync-sku` para buscar o SKU configurado, localizar a lista `Atacado`, consultar preço/estoque no depósito `Atacado` e atualizar a regra de atacado do app.
+- Adicionamos botão `Sincronizar Tiny` no painel.
+- Atualizamos `.env.example` com as variáveis necessárias.
+- Nova versão: `2026-08-18-tiny-sync-v1`.
+
+**Status**
+
+Em validação no Vercel. Se der erro, o retorno deve aparecer no aviso azul do painel e indicar se falhou token, lista de preço, SKU ou depósito.
