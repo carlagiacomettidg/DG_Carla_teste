@@ -1,8 +1,17 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-17-storefront-prices-v1";
+  const SCRIPT_VERSION = "2026-08-18-storefront-diagnostics-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
+  window.DG_WHOLESALE_DEBUG = {
+    version: SCRIPT_VERSION,
+    loadedAt: new Date().toISOString(),
+    attempts: 0,
+    customerFound: false,
+    contextLoaded: false,
+    applied: 0,
+    lastReason: "script_loaded"
+  };
 
   function ready(fn) {
     if (document.readyState === "loading") {
@@ -113,8 +122,13 @@
     const candidates = [
       window.LS && window.LS.customer,
       window.Nuvemshop && window.Nuvemshop.customer,
+      window.TiendaNube && window.TiendaNube.customer,
+      window.tiendaNube && window.tiendaNube.customer,
+      window.Store && window.Store.customer,
       window.customer,
-      window.currentCustomer
+      window.currentCustomer,
+      window.current_customer,
+      window.loggedCustomer
     ].filter(Boolean);
 
     for (const customer of candidates) {
@@ -131,6 +145,16 @@
     const emailMeta = document.querySelector('meta[name="customer-email"], meta[property="customer:email"]');
     if (emailMeta?.content) {
       return { id: "", email: String(emailMeta.content).toLowerCase() };
+    }
+
+    const accountText = [
+      document.querySelector(".js-customer-name"),
+      document.querySelector("[data-customer-email]"),
+      document.querySelector("[data-store='account-name']")
+    ].find(Boolean);
+    const dataEmail = accountText?.getAttribute?.("data-customer-email");
+    if (dataEmail) {
+      return { id: "", email: String(dataEmail).toLowerCase() };
     }
 
     return null;
@@ -171,6 +195,13 @@
       window.product?.product_id;
     if (lsProductId && maps.byProduct.get(String(lsProductId))) return maps.byProduct.get(String(lsProductId))[0];
 
+    const href = element.closest?.(".js-product-container,.js-item-product,.product-item")?.querySelector?.("a[href]")?.href || location.href;
+    if (href) {
+      const normalizedHref = String(href).split("?")[0].replace(/\/$/, "");
+      const byUrl = maps.byUrl.get(normalizedHref);
+      if (byUrl) return byUrl;
+    }
+
     return null;
   }
 
@@ -181,12 +212,16 @@
     const maps = {
       byVariant: new Map(),
       byProduct: new Map(),
-      bySku: new Map()
+      bySku: new Map(),
+      byUrl: new Map()
     };
 
     rules.forEach((rule) => {
       if (rule.variantId) maps.byVariant.set(String(rule.variantId), rule);
       if (rule.sku) maps.bySku.set(String(rule.sku).toUpperCase(), rule);
+      if (rule.url) {
+        maps.byUrl.set(String(rule.url).split("?")[0].replace(/\/$/, ""), rule);
+      }
       if (rule.productId) {
         const key = String(rule.productId);
         const list = maps.byProduct.get(key) || [];
@@ -217,6 +252,11 @@
       applied += 1;
     });
 
+    window.DG_WHOLESALE_DEBUG.applied = applied;
+    window.DG_WHOLESALE_DEBUG.priceNodes = nodes.length;
+    window.DG_WHOLESALE_DEBUG.rules = rules.length;
+    window.DG_WHOLESALE_DEBUG.lastReason = applied ? "prices_applied" : "no_matching_price_nodes";
+
     if (applied && !document.querySelector("[data-dg-wholesale-banner]")) {
       const banner = document.createElement("div");
       banner.setAttribute("data-dg-wholesale-banner", "true");
@@ -228,13 +268,23 @@
   }
 
   async function initStorefrontWholesalePrices(attempt = 0) {
+    if (window.DG_WHOLESALE_DEBUG?.contextLoaded && window.DG_WHOLESALE_DEBUG?.applied > 0) return;
+    window.DG_WHOLESALE_DEBUG.attempts = attempt + 1;
     const customer = getCurrentStorefrontCustomer();
     if (!customer?.email && !customer?.id) {
-      if (attempt < 8) {
-        window.setTimeout(() => initStorefrontWholesalePrices(attempt + 1), 350);
+      window.DG_WHOLESALE_DEBUG.customerFound = false;
+      window.DG_WHOLESALE_DEBUG.lastReason = "customer_not_found_in_storefront";
+      if (attempt < 60) {
+        window.setTimeout(() => initStorefrontWholesalePrices(attempt + 1), 500);
       }
       return;
     }
+
+    window.DG_WHOLESALE_DEBUG.customerFound = true;
+    window.DG_WHOLESALE_DEBUG.customer = {
+      id: customer.id || "",
+      email: customer.email || ""
+    };
 
     const style = document.createElement("style");
     style.textContent = `
@@ -267,6 +317,12 @@
       const response = await fetch(`${APP_URL}/api/storefront-wholesale-context?${params.toString()}`);
       const context = await response.json();
       window.DG_WHOLESALE_CONTEXT = context;
+      window.DG_WHOLESALE_DEBUG.contextLoaded = true;
+      window.DG_WHOLESALE_DEBUG.context = {
+        wholesale: context.wholesale === true,
+        reason: context.reason || "",
+        rules: Array.isArray(context.rules) ? context.rules.length : 0
+      };
       applyWholesalePrices(context);
 
       const rerun = () => window.requestAnimationFrame(() => applyWholesalePrices(context));
@@ -277,6 +333,8 @@
       const observer = new MutationObserver(() => rerun());
       observer.observe(document.body, { childList: true, subtree: true });
     } catch (error) {
+      window.DG_WHOLESALE_DEBUG.lastReason = "context_request_failed";
+      window.DG_WHOLESALE_DEBUG.error = error.message || String(error);
       console.warn("Não foi possível aplicar preços de atacado.", error);
     }
   }
@@ -289,6 +347,9 @@
 
   ready(function () {
     initStorefrontWholesalePrices();
+    window.addEventListener("load", () => initStorefrontWholesalePrices());
+    window.addEventListener("focus", () => initStorefrontWholesalePrices());
+    document.addEventListener("click", () => initStorefrontWholesalePrices(), true);
 
     if (!isAccountPage()) return;
     if (document.querySelector("[data-dg-wholesale-login]")) return;

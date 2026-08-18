@@ -15,6 +15,7 @@ Este arquivo funciona como um banco único de erros do projeto. Sempre que um er
 - [2026-08-14 - Cadastro sem erro visual e sem confirmação na loja](#2026-08-14---cadastro-sem-erro-visual-e-sem-confirmação-na-loja)
 - [2026-08-17 - Cliente atacado loga, mas preço de atacado não aparece](#2026-08-17---cliente-atacado-loga-mas-preço-de-atacado-não-aparece)
 - [2026-08-17 - Abas do painel travam ao alternar telas](#2026-08-17---abas-do-painel-travam-ao-alternar-telas)
+- [2026-08-18 - Preço atacado ainda não aparece após publicar script](#2026-08-18---preço-atacado-ainda-não-aparece-após-publicar-script)
 
 ## 2026-08-14 - Nuvemshop API 404: Last page is 0
 
@@ -301,3 +302,30 @@ O painel carregava produtos, regras e clientes logo na abertura. Além disso, a 
 **Status**
 
 Corrigido e em validação.
+
+## 2026-08-18 - Preço atacado ainda não aparece após publicar script
+
+**Erro**
+
+Mesmo após publicar a versão `2026-08-17-storefront-prices-v1`, o cliente consegue logar como atacado, mas a vitrine continua exibindo o preço normal.
+
+**Onde apareceu**
+
+- Vitrine da loja com cliente atacado logado.
+- Script de storefront publicado no Portal de Parceiros.
+
+**Motivo**
+
+O script dependia de conseguir identificar rapidamente o cliente logado e casar o preço visível com `productId`, `variantId` ou SKU. Em temas da Nuvemshop, o objeto do cliente pode aparecer depois do carregamento inicial, e alguns blocos de produto na vitrine não expõem ID/SKU diretamente no HTML renderizado. Com isso, o script podia parar de tentar antes do cliente estar disponível ou não conseguir casar o elemento de preço com a regra de atacado.
+
+**Como corrigimos**
+
+- Aumentamos a janela de tentativa de identificação do cliente logado.
+- O script agora tenta novamente no `load`, `focus` e em cliques da página.
+- Criamos diagnóstico em `window.DG_WHOLESALE_DEBUG` para mostrar versão, tentativas, cliente encontrado, contexto carregado, quantidade de regras e quantos preços foram aplicados.
+- O backend passou a retornar `productUrl`/`url` nas regras públicas quando disponível, permitindo casar preço pelo link do produto quando o tema não expõe ID/SKU.
+- Nova versão: `2026-08-18-storefront-diagnostics-v1`.
+
+**Status**
+
+Em validação. Se `window.DG_WHOLESALE_DEBUG` indicar `customer_not_found_in_storefront`, o tema/script da Nuvemshop não está expondo o cliente logado para o JavaScript externo. Se indicar `no_matching_price_nodes`, o próximo ajuste deve ser feito nos seletores/HTML reais do produto.

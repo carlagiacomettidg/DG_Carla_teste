@@ -31,7 +31,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-17-storefront-prices-v1";
+const APP_VERSION = "2026-08-18-storefront-diagnostics-v1";
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -321,6 +321,7 @@ function mapStorefrontRule(rule) {
     sku: normalizeSku(rule.sku),
     productName: cleanString(rule.productName),
     variantName: cleanString(rule.variantName),
+    url: cleanString(rule.productUrl || rule.url),
     wholesalePrice: money(rule.wholesalePrice),
     wholesaleStock: Number(rule.wholesaleStock || 0)
   };
@@ -556,11 +557,13 @@ async function handleApi(req, res) {
     const flattened = products.flatMap((product) => {
       const productName = product.name?.pt || product.name?.es || product.name?.en || "";
       const image = product.images?.[0]?.src || "";
+      const productUrl = product.canonical_url || product.url || product.permalink || "";
       return (product.variants || []).map((variant) => ({
         productId: String(product.id),
         variantId: String(variant.id),
         sku: normalizeSku(variant.sku),
         productName,
+        productUrl,
         variantName: (variant.values || [])
           .map((value) => value.pt || value.es || value.en || "")
           .filter(Boolean)
@@ -585,6 +588,7 @@ async function handleApi(req, res) {
             variantId: item.variantId,
             sku: item.sku || current.sku,
             productName: item.productName || current.productName,
+            productUrl: item.productUrl || current.productUrl || "",
             variantName: item.variantName,
             image: item.image,
             retailPrice: item.retailPrice,
