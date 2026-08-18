@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-14-api-register-debug-v1";
+  const SCRIPT_VERSION = "2026-08-17-storefront-prices-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
 
   function ready(fn) {
@@ -109,6 +109,178 @@
     if (text) box.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  function getCurrentStorefrontCustomer() {
+    const candidates = [
+      window.LS && window.LS.customer,
+      window.Nuvemshop && window.Nuvemshop.customer,
+      window.customer,
+      window.currentCustomer
+    ].filter(Boolean);
+
+    for (const customer of candidates) {
+      const email = customer.email || customer.customer_email || customer.mail;
+      const id = customer.id || customer.customer_id;
+      if (email || id) {
+        return {
+          id: id ? String(id) : "",
+          email: email ? String(email).toLowerCase() : ""
+        };
+      }
+    }
+
+    const emailMeta = document.querySelector('meta[name="customer-email"], meta[property="customer:email"]');
+    if (emailMeta?.content) {
+      return { id: "", email: String(emailMeta.content).toLowerCase() };
+    }
+
+    return null;
+  }
+
+  function moneyBR(value) {
+    return Number(value || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+  }
+
+  function getAttr(element, names) {
+    for (const name of names) {
+      const value = element?.getAttribute?.(name);
+      if (value) return String(value);
+    }
+    return "";
+  }
+
+  function findRuleForElement(element, maps) {
+    const closestVariant = element.closest?.("[data-variant-id], [data-variation-id], [data-store*='variant']");
+    const variantId = getAttr(closestVariant, ["data-variant-id", "data-variation-id", "data-id"]);
+    if (variantId && maps.byVariant.get(variantId)) return maps.byVariant.get(variantId);
+
+    const closestProduct = element.closest?.("[data-product-id], [data-product], [data-item-product-id], [data-store*='product']");
+    const productId = getAttr(closestProduct, ["data-product-id", "data-product", "data-item-product-id", "data-id"]);
+    if (productId && maps.byProduct.get(productId)) return maps.byProduct.get(productId)[0];
+
+    const skuText = document.querySelector("[data-product-sku], .js-product-sku, .product-sku")?.textContent || "";
+    const sku = skuText.replace(/sku:?/i, "").trim().toUpperCase();
+    if (sku && maps.bySku.get(sku)) return maps.bySku.get(sku);
+
+    const lsProductId =
+      window.LS?.product?.id ||
+      window.LS?.product?.product_id ||
+      window.product?.id ||
+      window.product?.product_id;
+    if (lsProductId && maps.byProduct.get(String(lsProductId))) return maps.byProduct.get(String(lsProductId))[0];
+
+    return null;
+  }
+
+  function applyWholesalePrices(context) {
+    const rules = Array.isArray(context.rules) ? context.rules : [];
+    if (!context.wholesale || !rules.length) return;
+
+    const maps = {
+      byVariant: new Map(),
+      byProduct: new Map(),
+      bySku: new Map()
+    };
+
+    rules.forEach((rule) => {
+      if (rule.variantId) maps.byVariant.set(String(rule.variantId), rule);
+      if (rule.sku) maps.bySku.set(String(rule.sku).toUpperCase(), rule);
+      if (rule.productId) {
+        const key = String(rule.productId);
+        const list = maps.byProduct.get(key) || [];
+        list.push(rule);
+        maps.byProduct.set(key, list);
+      }
+    });
+
+    const selectors = [
+      ".js-price-display",
+      ".js-product-price",
+      ".js-price",
+      ".price",
+      "#price_display",
+      "[data-store='product-price']",
+      "[data-store='product-item-price']"
+    ];
+
+    const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
+    let applied = 0;
+    nodes.forEach((node) => {
+      const rule = findRuleForElement(node, maps);
+      if (!rule) return;
+      node.dataset.dgRetailPrice = node.dataset.dgRetailPrice || node.textContent.trim();
+      node.dataset.dgWholesaleApplied = "true";
+      node.textContent = moneyBR(rule.wholesalePrice);
+      node.classList.add("dg-wholesale-price-applied");
+      applied += 1;
+    });
+
+    if (applied && !document.querySelector("[data-dg-wholesale-banner]")) {
+      const banner = document.createElement("div");
+      banner.setAttribute("data-dg-wholesale-banner", "true");
+      banner.className = "dg-wholesale-banner";
+      banner.textContent = "Preço de atacado aplicado para sua conta.";
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 4200);
+    }
+  }
+
+  async function initStorefrontWholesalePrices(attempt = 0) {
+    const customer = getCurrentStorefrontCustomer();
+    if (!customer?.email && !customer?.id) {
+      if (attempt < 8) {
+        window.setTimeout(() => initStorefrontWholesalePrices(attempt + 1), 350);
+      }
+      return;
+    }
+
+    const style = document.createElement("style");
+    style.textContent = `
+      .dg-wholesale-price-applied {
+        color: #0050d8 !important;
+        font-weight: 700 !important;
+      }
+      .dg-wholesale-banner {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        z-index: 999999;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 32px);
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        padding: 12px 16px;
+        font: 600 13px/1.35 Poppins, Arial, sans-serif;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, .12);
+      }
+    `;
+    document.head.appendChild(style);
+
+    try {
+      const params = new URLSearchParams();
+      if (customer.email) params.set("email", customer.email);
+      if (customer.id) params.set("customerId", customer.id);
+      const response = await fetch(`${APP_URL}/api/storefront-wholesale-context?${params.toString()}`);
+      const context = await response.json();
+      window.DG_WHOLESALE_CONTEXT = context;
+      applyWholesalePrices(context);
+
+      const rerun = () => window.requestAnimationFrame(() => applyWholesalePrices(context));
+      document.addEventListener("change", rerun, true);
+      document.addEventListener("click", (event) => {
+        if (event.target.closest("select, input, button, .js-product-variants, .js-insta-variant")) rerun();
+      }, true);
+      const observer = new MutationObserver(() => rerun());
+      observer.observe(document.body, { childList: true, subtree: true });
+    } catch (error) {
+      console.warn("Não foi possível aplicar preços de atacado.", error);
+    }
+  }
+
   function formatTechnicalError({ status, data, error }) {
     const detail = data?.error || data?.message || error?.message || "Erro desconhecido.";
     const requestId = data?.requestId ? ` Código: ${data.requestId}.` : "";
@@ -116,6 +288,8 @@
   }
 
   ready(function () {
+    initStorefrontWholesalePrices();
+
     if (!isAccountPage()) return;
     if (document.querySelector("[data-dg-wholesale-login]")) return;
 

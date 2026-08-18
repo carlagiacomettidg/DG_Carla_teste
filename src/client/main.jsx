@@ -73,6 +73,9 @@ function App() {
   const [locations, setLocations] = useState([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [visibleRuleCount, setVisibleRuleCount] = useState(80);
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -100,14 +103,35 @@ function App() {
   }, []);
 
   useEffect(() => {
-    Promise.all([api("/api/settings"), api("/api/rules"), api("/api/wholesale-customers")])
-      .then(([settingsData, rulesData, customersData]) => {
+    Promise.all([api("/api/settings"), api("/api/rules")])
+      .then(([settingsData, rulesData]) => {
         setSettings(settingsData);
         setRules(rulesData);
-        setCustomers(customersData);
       })
       .catch((error) => setNotice(error.message));
   }, []);
+
+  useEffect(() => {
+    setVisibleRuleCount(80);
+  }, [query, rules.length]);
+
+  useEffect(() => {
+    if (activeView !== "customers" || customersLoaded || customersLoading) return;
+    loadWholesaleCustomers();
+  }, [activeView, customersLoaded, customersLoading]);
+
+  async function loadWholesaleCustomers() {
+    setCustomersLoading(true);
+    try {
+      const customersData = await api("/api/wholesale-customers");
+      setCustomers(customersData);
+      setCustomersLoaded(true);
+    } catch (error) {
+      setNotice(error.message || "Não foi possível carregar os clientes de atacado.");
+    } finally {
+      setCustomersLoading(false);
+    }
+  }
 
   async function saveSettings(event) {
     event.preventDefault();
@@ -216,9 +240,17 @@ function App() {
 
   async function syncCustomers() {
     setNotice("Sincronizando clientes da Nuvemshop...");
-    const result = await api("/api/wholesale-customers/sync", { method: "POST" });
-    setCustomers(result.customers);
-    setNotice(`${result.imported} clientes sincronizados.`);
+    setCustomersLoading(true);
+    try {
+      const result = await api("/api/wholesale-customers/sync", { method: "POST" });
+      setCustomers(result.customers);
+      setCustomersLoaded(true);
+      setNotice(`${result.imported} clientes sincronizados.`);
+    } catch (error) {
+      setNotice(error.message || "Não foi possível sincronizar os clientes.");
+    } finally {
+      setCustomersLoading(false);
+    }
   }
 
   async function applyBulkDiscount() {
@@ -318,6 +350,10 @@ function App() {
     () => filteredRules.length > 0 && filteredRules.every((rule) => selectedIds.includes(String(rule.id))),
     [filteredRules, selectedIds]
   );
+  const visibleRules = useMemo(
+    () => filteredRules.slice(0, visibleRuleCount),
+    [filteredRules, visibleRuleCount]
+  );
   const storeConnected = Boolean(settings.id && settings.accessToken === "configured");
 
   function toggleSelect(id) {
@@ -369,19 +405,19 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Seções do app">
-        <button className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
+        <button type="button" className={activeView === "products" ? "active" : ""} onClick={() => setActiveView("products")}>
           <Package size={16} />
           Produtos
         </button>
-        <button className={activeView === "import" ? "active" : ""} onClick={() => setActiveView("import")}>
+        <button type="button" className={activeView === "import" ? "active" : ""} onClick={() => setActiveView("import")}>
           <FileUp size={16} />
           Importar e exportar
         </button>
-        <button className={activeView === "customers" ? "active" : ""} onClick={() => setActiveView("customers")}>
+        <button type="button" className={activeView === "customers" ? "active" : ""} onClick={() => setActiveView("customers")}>
           <Users size={16} />
           Clientes atacado
         </button>
-        <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
+        <button type="button" className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
           <Settings size={16} />
           Configurações
         </button>
@@ -410,7 +446,9 @@ function App() {
             <div className="products-heading">
               <div>
                 <h2>Produtos</h2>
-                <p>{filteredRules.length} produtos/variações</p>
+                <p>
+                  Mostrando {visibleRules.length} de {filteredRules.length} produtos/variações
+                </p>
               </div>
               <div className="bulk-box">
                 <input
@@ -472,7 +510,7 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRules.map((rule) => (
+                  {visibleRules.map((rule) => (
                     <tr key={rule.id}>
                       <td>
                         <input
@@ -521,6 +559,13 @@ function App() {
                   ))}
                 </tbody>
               </table>
+              {visibleRules.length < filteredRules.length && (
+                <div className="table-load-more">
+                  <button type="button" onClick={() => setVisibleRuleCount((current) => current + 80)}>
+                    Carregar mais produtos
+                  </button>
+                </div>
+              )}
               </div>
             )}
           </section>
@@ -569,9 +614,9 @@ function App() {
               <h2>Clientes atacado</h2>
               <p>Clientes reais da Nuvemshop e solicitações de acesso ao atacado.</p>
             </div>
-            <button onClick={syncCustomers}>
+            <button type="button" onClick={syncCustomers} disabled={customersLoading}>
               <RefreshCw size={16} />
-              Sincronizar clientes
+              {customersLoading ? "Sincronizando..." : "Sincronizar clientes"}
             </button>
           </div>
 
@@ -593,7 +638,17 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {customers.map((customer) => (
+                {customersLoading && (
+                  <tr>
+                    <td colSpan="7">Carregando clientes de atacado...</td>
+                  </tr>
+                )}
+                {!customersLoading && customers.length === 0 && (
+                  <tr>
+                    <td colSpan="7">Nenhum cliente de atacado encontrado.</td>
+                  </tr>
+                )}
+                {!customersLoading && customers.map((customer) => (
                   <tr key={customer.id}>
                     <td>
                       <strong>{customer.name || "-"}</strong>

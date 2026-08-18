@@ -8,6 +8,7 @@ import {
   buildLocationPrioritizationResponse,
   chooseLocationPriority,
   chooseWholesaleLocationPriority,
+  isApprovedWholesaleCustomer,
   isValidCnpj,
   money,
   normalizeDocument,
@@ -30,7 +31,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-14-wholesale-debug-v1";
+const APP_VERSION = "2026-08-17-storefront-prices-v1";
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -313,6 +314,18 @@ function mapNuvemshopWholesaleCustomer(customer) {
   };
 }
 
+function mapStorefrontRule(rule) {
+  return {
+    productId: String(rule.productId || ""),
+    variantId: String(rule.variantId || ""),
+    sku: normalizeSku(rule.sku),
+    productName: cleanString(rule.productName),
+    variantName: cleanString(rule.variantName),
+    wholesalePrice: money(rule.wholesalePrice),
+    wholesaleStock: Number(rule.wholesaleStock || 0)
+  };
+}
+
 async function listNuvemshopWholesaleCustomers(db) {
   if (!db.store?.id || !db.store?.accessToken) {
     return [];
@@ -451,6 +464,82 @@ async function handleApi(req, res) {
   if (isRoute(req, "GET", "/api/rules")) {
     const db = await readDb();
     return sendJson(req, res, 200, db.rules);
+  }
+
+  if (isRoute(req, "GET", "/api/storefront-wholesale-context")) {
+    const db = await readDb();
+    const email = cleanString(url.searchParams.get("email")).toLowerCase();
+    const customerId = cleanString(url.searchParams.get("customerId"));
+
+    if (!db.store?.id || !db.store?.accessToken) {
+      return sendJson(req, res, 200, { wholesale: false, reason: "store_not_connected" });
+    }
+
+    let customer = null;
+    try {
+      if (customerId) {
+        try {
+          customer = await getCustomer({
+            storeId: db.store.id,
+            accessToken: db.store.accessToken,
+            customerId
+          });
+        } catch (error) {
+          if (!email) throw error;
+        }
+      }
+      if (!customer && email) {
+        customer = await findCustomerByEmail({
+          storeId: db.store.id,
+          accessToken: db.store.accessToken,
+          email
+        });
+      }
+    } catch (error) {
+      return sendJson(req, res, 200, {
+        wholesale: false,
+        reason: "customer_lookup_failed",
+        error: error.message
+      });
+    }
+
+    if (!customer) {
+      return sendJson(req, res, 200, { wholesale: false, reason: "customer_not_found" });
+    }
+
+    const mappedCustomer = mapNuvemshopWholesaleCustomer(customer);
+    const approved = isApprovedWholesaleCustomer(
+      [mappedCustomer],
+      {
+        id: customer.id,
+        email: customer.email,
+        document: customer.identification || customerExtra(customer).cnpj,
+        extra: customerExtra(customer)
+      },
+      db.store.wholesaleApprovalMode
+    );
+
+    if (!approved) {
+      return sendJson(req, res, 200, {
+        wholesale: false,
+        reason: "customer_without_wholesale_access",
+        customer: mappedCustomer
+      });
+    }
+
+    return sendJson(req, res, 200, {
+      wholesale: true,
+      customer: mappedCustomer,
+      settings: {
+        minimumQuantity: Number(db.store.wholesaleMinimumQuantity || 0),
+        minimumAmount: money(db.store.wholesaleMinimumAmount || 0),
+        wholesaleLocationId: cleanString(db.store.wholesaleLocationId),
+        wholesaleLocationName: cleanString(db.store.wholesaleLocationName)
+      },
+      rules: (db.rules || [])
+        .filter((rule) => rule.enabled !== false && Number(rule.wholesalePrice || 0) > 0)
+        .map(mapStorefrontRule)
+    });
   }
 
   if (isRoute(req, "POST", "/api/rules/sync-products")) {

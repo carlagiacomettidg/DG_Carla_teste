@@ -13,6 +13,8 @@ Este arquivo funciona como um banco único de erros do projeto. Sempre que um er
 - [2026-08-14 - Nuvemshop API 401: token inválido](#2026-08-14---nuvemshop-api-401-token-inválido)
 - [2026-08-14 - Nuvemshop API 403: read_locations](#2026-08-14---nuvemshop-api-403-read_locations)
 - [2026-08-14 - Cadastro sem erro visual e sem confirmação na loja](#2026-08-14---cadastro-sem-erro-visual-e-sem-confirmação-na-loja)
+- [2026-08-17 - Cliente atacado loga, mas preço de atacado não aparece](#2026-08-17---cliente-atacado-loga-mas-preço-de-atacado-não-aparece)
+- [2026-08-17 - Abas do painel travam ao alternar telas](#2026-08-17---abas-do-painel-travam-ao-alternar-telas)
 
 ## 2026-08-14 - Nuvemshop API 404: Last page is 0
 
@@ -247,3 +249,55 @@ O endpoint `/api/wholesale-requests` foi testado diretamente e conseguiu criar c
 **Status**
 
 Em validação.
+
+## 2026-08-17 - Cliente atacado loga, mas preço de atacado não aparece
+
+**Erro**
+
+Cliente criado e logado corretamente na loja, mas os preços configurados no painel de atacado não aparecem na vitrine.
+
+**Onde apareceu**
+
+- Vitrine da loja com cliente de atacado logado.
+- Produtos com preço de atacado já configurado no painel do app.
+
+**Motivo**
+
+O cadastro/login já estava funcionando, mas o script instalado na loja ainda só atuava na página de cadastro. Não existia uma rotina na vitrine para identificar o cliente logado como atacado, buscar as regras salvas no app e substituir visualmente o preço do produto pelo preço de atacado.
+
+**Como corrigimos**
+
+- Criamos o endpoint `/api/storefront-wholesale-context`.
+- Esse endpoint busca o cliente logado na Nuvemshop, valida se ele está marcado como atacado/aprovado e retorna as regras de preço de atacado.
+- Atualizamos `public/wholesale-login.js` para rodar também nas páginas da vitrine, detectar o cliente logado e aplicar o preço de atacado nos elementos de preço encontrados no tema.
+- Nova versão do script: `2026-08-17-storefront-prices-v1`.
+
+**Status**
+
+Em validação na vitrine, porque a aplicação visual depende dos seletores reais do tema.
+
+## 2026-08-17 - Abas do painel travam ao alternar telas
+
+**Erro**
+
+Ao clicar em abas como `Importar e exportar`, `Clientes atacado` ou `Configurações`, o painel incorporado dentro da Nuvemshop ficava lento ou travava, principalmente no primeiro clique.
+
+**Onde apareceu**
+
+- App incorporado no admin da Nuvemshop.
+- Tela `Produtos em atacado`.
+
+**Motivo**
+
+O painel carregava produtos, regras e clientes logo na abertura. Além disso, a aba de produtos renderizava muitas linhas com inputs ao mesmo tempo. Com mais de mil produtos/variações, o navegador precisava montar muitos campos editáveis de uma vez, causando travamento ao alternar telas.
+
+**Como corrigimos**
+
+- Removemos a carga inicial obrigatória dos clientes; eles passam a carregar apenas quando a aba `Clientes atacado` é aberta.
+- A tabela de produtos passou a renderizar em blocos de 80 itens, com botão `Carregar mais produtos`.
+- Os botões das abas foram definidos explicitamente como `type="button"` para evitar comportamento de submit acidental.
+- O carregamento de clientes recebeu estado de loading com `try/finally`, evitando botão preso caso a API demore ou falhe.
+
+**Status**
+
+Corrigido e em validação.
