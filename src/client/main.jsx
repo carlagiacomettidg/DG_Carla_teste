@@ -102,9 +102,6 @@ function App() {
 
     if (!isEmbedded) return;
 
-    window.parent.postMessage({ type: "app/connected" }, "*");
-    window.parent.postMessage({ type: "app/ready" }, "*");
-
     import("@tiendanube/nexo")
       .then(async (nexoModule) => {
         const nexo = nexoModule.default || nexoModule;
@@ -113,14 +110,13 @@ function App() {
           log: false
         });
 
-        nexoModule.iAmReady(nexoClient);
-        await nexoModule.connect(nexoClient);
+        await nexoModule.connect(nexoClient, 10000);
         getAdminSessionToken = () => nexoModule.getSessionToken(nexoClient);
         nexoModule.iAmReady(nexoClient);
         setAdminReady(true);
       })
       .catch((error) => {
-        setAdminAuthError("Não foi possível validar o acesso pelo painel da Nuvemshop.");
+        setAdminAuthError("Não foi possível validar o acesso pelo painel da Nuvemshop. Atualize a página dentro do admin e tente novamente.");
         console.warn("Falha ao conectar Nexo", error);
       });
   }, []);

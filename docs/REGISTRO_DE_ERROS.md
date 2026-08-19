@@ -415,3 +415,32 @@ O app já era incorporado ao painel da Nuvemshop, mas a mesma tela também rende
 **Status**
 
 Em validação. O próximo teste deve confirmar que o painel continua abrindo dentro da Nuvemshop e que a URL pública não mostra mais controles administrativos.
+
+## 2026-08-19 - Painel restrito também bloqueou o admin da Nuvemshop
+
+**Erro**
+
+Depois da proteção do painel, o app passou a mostrar `Validando acesso` e a mensagem `Não foi possível validar o acesso pelo painel da Nuvemshop` mesmo quando aberto dentro do administrador da Nuvemshop.
+
+**Onde apareceu**
+
+- Admin da Nuvemshop em `Produtos em atacado`.
+
+**Motivo**
+
+O front estava chamando mensagens manuais e `iAmReady` antes do `connect` do Nexo. Pela documentação oficial, o fluxo correto é criar a instância Nexo, chamar `connect(nexo)` e só depois chamar `iAmReady(nexo)`. Como a conexão falhava antes de obter o token de sessão, o painel ficava preso na tela de validação.
+
+**Como corrigimos**
+
+- Removemos os `postMessage` manuais.
+- O fluxo agora chama `connect(nexoClient, 10000)`, configura `getSessionToken` e só depois chama `iAmReady(nexoClient)`.
+- Mantivemos os helpers pelo export principal de `@tiendanube/nexo`, porque a versão instalada no projeto não resolve o subpath `@tiendanube/nexo/helpers` no build.
+- Mantivemos a validação de token no backend.
+
+**Status**
+
+Corrigido e em validação no admin incorporado.
+
+**Versão**
+
+`2026-08-19-admin-security-v2`
