@@ -2,7 +2,7 @@ import http from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readDb, updateDb } from "./storage.js";
 import {
   buildLocationPrioritizationResponse,
@@ -27,12 +27,12 @@ import {
   registerLocationBusinessRule,
   updateCustomer
 } from "./nuvemshop.js";
-import { getTinyStatus, getTinyWholesaleBySku } from "./tiny.js";
+import { findTinyPriceList, getTinyStatus, getTinyWholesaleBySku } from "./tiny.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-18-tiny-sync-v1";
+const APP_VERSION = "2026-08-19-admin-security-v1";
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -65,7 +65,7 @@ function corsHeaders(req) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Vary": "Origin"
   };
 }
@@ -78,6 +78,79 @@ function sendJson(req, res, status, payload) {
 function sendText(req, res, status, text) {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(req) });
   res.end(text);
+}
+
+function base64UrlDecode(value) {
+  const padded = `${value}${"=".repeat((4 - (value.length % 4)) % 4)}`;
+  return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+function base64UrlEncode(buffer) {
+  return Buffer.from(buffer)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function verifyNexoSessionToken(req) {
+  const secret = cleanString(process.env.NUVEMSHOP_CLIENT_SECRET);
+  if (!secret) {
+    throw new Error("NUVEMSHOP_CLIENT_SECRET nao configurado para validar o painel.");
+  }
+
+  const authorization = cleanString(req.headers.authorization);
+  const token = authorization.toLowerCase().startsWith("bearer ") ? authorization.slice(7).trim() : "";
+  if (!token) throw new Error("Token de sessao do painel ausente.");
+
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Token de sessao do painel invalido.");
+
+  const [headerPart, payloadPart, signaturePart] = parts;
+  const header = JSON.parse(base64UrlDecode(headerPart).toString("utf8"));
+  if (header.alg !== "HS256") throw new Error("Assinatura do token do painel nao suportada.");
+
+  const expectedSignature = base64UrlEncode(createHmac("sha256", secret).update(`${headerPart}.${payloadPart}`).digest());
+  const received = Buffer.from(signaturePart);
+  const expected = Buffer.from(expectedSignature);
+  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+    throw new Error("Assinatura do token do painel invalida.");
+  }
+
+  const payload = JSON.parse(base64UrlDecode(payloadPart).toString("utf8"));
+  if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
+    throw new Error("Token de sessao do painel expirado.");
+  }
+
+  return payload;
+}
+
+function isPublicRoute(req, pathname) {
+  if (req.method === "GET" && ["/health", "/app-version", "/api/public-config", "/auth/install", "/auth/start", "/auth/callback"].includes(pathname)) {
+    return true;
+  }
+  if (req.method === "POST" && ["/webhooks/store-redact", "/webhooks/customers-redact", "/webhooks/customers-data-request"].includes(pathname)) {
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/api/storefront-wholesale-context") return true;
+  if (req.method === "POST" && pathname === "/api/wholesale-requests") return true;
+  return false;
+}
+
+function requireAdminApi(req, res, pathname) {
+  if (!pathname.startsWith("/api/")) return true;
+  if (isPublicRoute(req, pathname)) return true;
+
+  try {
+    req.adminSession = verifyNexoSessionToken(req);
+    return true;
+  } catch (error) {
+    sendJson(req, res, 401, {
+      error: "Acesso restrito ao painel da Nuvemshop.",
+      detail: error.message
+    });
+    return false;
+  }
 }
 
 function sendCsv(res, filename, rows) {
@@ -341,6 +414,7 @@ async function listNuvemshopWholesaleCustomers(db) {
 
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (!requireAdminApi(req, res, url.pathname)) return true;
 
   if (isRoute(req, "GET", "/health")) {
     return sendJson(req, res, 200, { ok: true, app: "venos-nuvemshop-app", version: APP_VERSION });
@@ -528,6 +602,90 @@ async function handleApi(req, res) {
       return sendJson(req, res, 200, {
         ok: true,
         tinyProduct,
+        rules: next.rules
+      });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
+  }
+
+  if (isRoute(req, "POST", "/api/tiny/sync-rules")) {
+    try {
+      const db = await readDb();
+      const rulesWithSku = (db.rules || []).filter((rule) => normalizeSku(rule.sku));
+
+      if (!rulesWithSku.length) {
+        return sendJson(req, res, 400, {
+          error: "Nenhum SKU da Nuvemshop encontrado no app. Clique primeiro em Sincronizar produtos."
+        });
+      }
+
+      const priceListName = process.env.TINY_PRICE_LIST_NAME || "Atacado";
+      const depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado";
+      const priceList = await findTinyPriceList(priceListName);
+      if (!priceList) {
+        return sendJson(req, res, 400, { error: `Lista de preco "${priceListName}" nao encontrada no Tiny.` });
+      }
+
+      const bySku = new Map();
+      rulesWithSku.forEach((rule) => {
+        const sku = normalizeSku(rule.sku);
+        if (!bySku.has(sku)) bySku.set(sku, []);
+        bySku.get(sku).push(rule.id);
+      });
+
+      const tinyBySku = new Map();
+      const notFound = [];
+      const errors = [];
+
+      for (const sku of bySku.keys()) {
+        try {
+          const tinyProduct = await getTinyWholesaleBySku({
+            sku,
+            priceList,
+            priceListName,
+            depositName
+          });
+          tinyBySku.set(normalizeSku(tinyProduct.sku), tinyProduct);
+        } catch (error) {
+          const message = error.message || "";
+          if (message.includes("nao encontrado no Tiny")) {
+            notFound.push(sku);
+          } else {
+            errors.push({ sku, error: message });
+          }
+        }
+      }
+
+      const next = await updateDb((state) => {
+        state.rules = (state.rules || []).map((rule) => {
+          const tinyProduct = tinyBySku.get(normalizeSku(rule.sku));
+          if (!tinyProduct) return rule;
+
+          return {
+            ...rule,
+            wholesalePrice: money(tinyProduct.wholesalePrice),
+            wholesaleStock: Number(tinyProduct.wholesaleStock || 0),
+            tinyProductId: tinyProduct.productId,
+            tinyPriceListId: tinyProduct.priceList.id,
+            tinyPriceListName: tinyProduct.priceList.name,
+            tinyStockDepositName: tinyProduct.stockDeposit?.name || depositName,
+            tinySyncedAt: new Date().toISOString(),
+            enabled: rule.enabled !== false
+          };
+        });
+        return state;
+      });
+
+      const updatedRules = (next.rules || []).filter((rule) => tinyBySku.has(normalizeSku(rule.sku))).length;
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        checkedSkus: bySku.size,
+        updatedSkus: tinyBySku.size,
+        updatedRules,
+        notFound,
+        errors,
         rules: next.rules
       });
     } catch (error) {

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Database, Download, FileUp, MapPin, Package, RefreshCw, Save, Settings, Upload, Users } from "lucide-react";
 
 const isEmbedded = window.self !== window.top;
+let getAdminSessionToken = null;
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -30,8 +31,12 @@ class ErrorBoundary extends Component {
 }
 
 async function api(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(await getAdminHeaders())
+  };
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers,
     ...options
   });
 
@@ -47,6 +52,18 @@ async function api(path, options = {}) {
   }
 
   return response.json();
+}
+
+async function getAdminHeaders(extraHeaders = {}) {
+  if (!isEmbedded) return extraHeaders;
+  if (!getAdminSessionToken) {
+    throw new Error("Aguardando conexão segura com o painel da Nuvemshop.");
+  }
+  const token = await getAdminSessionToken();
+  return {
+    ...extraHeaders,
+    Authorization: `Bearer ${token}`
+  };
 }
 
 function currency(value) {
@@ -77,6 +94,8 @@ function App() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const [visibleRuleCount, setVisibleRuleCount] = useState(80);
   const [tinyLoading, setTinyLoading] = useState(false);
+  const [adminReady, setAdminReady] = useState(false);
+  const [adminAuthError, setAdminAuthError] = useState("");
 
   useEffect(() => {
     document.documentElement.classList.toggle("embedded-admin", isEmbedded);
@@ -96,21 +115,25 @@ function App() {
 
         nexoModule.iAmReady(nexoClient);
         await nexoModule.connect(nexoClient);
+        getAdminSessionToken = () => nexoModule.getSessionToken(nexoClient);
         nexoModule.iAmReady(nexoClient);
+        setAdminReady(true);
       })
       .catch((error) => {
+        setAdminAuthError("Não foi possível validar o acesso pelo painel da Nuvemshop.");
         console.warn("Falha ao conectar Nexo", error);
       });
   }, []);
 
   useEffect(() => {
+    if (!isEmbedded || !adminReady) return;
     Promise.all([api("/api/settings"), api("/api/rules")])
       .then(([settingsData, rulesData]) => {
         setSettings(settingsData);
         setRules(rulesData);
       })
       .catch((error) => setNotice(error.message));
-  }, []);
+  }, [adminReady]);
 
   useEffect(() => {
     setVisibleRuleCount(80);
@@ -214,6 +237,7 @@ function App() {
     event.preventDefault();
     const response = await fetch("/api/rules/import", {
       method: "POST",
+      headers: await getAdminHeaders(),
       body: new FormData(event.currentTarget)
     });
     const result = await response.json();
@@ -225,6 +249,26 @@ function App() {
     event.currentTarget.reset();
     setImportFileName("");
     setNotice(`${result.imported} itens importados com sucesso.`);
+  }
+
+  async function exportRules() {
+    try {
+      const response = await fetch("/api/rules/export", {
+        headers: await getAdminHeaders()
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "tabela-atacado-venos.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice(error.message || "Não foi possível exportar a tabela.");
+    }
   }
 
   async function deleteRule(id) {
@@ -239,14 +283,14 @@ function App() {
     setNotice(`${result.imported} produtos/variações sincronizados.`);
   }
 
-  async function syncTinyTestSku() {
+  async function syncTinyRules() {
     setTinyLoading(true);
-    setNotice("Buscando preço e estoque de atacado no Tiny...");
+    setNotice("Conferindo SKUs da Nuvemshop no Tiny...");
     try {
-      const result = await api("/api/tiny/sync-sku", { method: "POST", body: JSON.stringify({}) });
+      const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
       setRules(result.rules);
       setNotice(
-        `Tiny sincronizado: SKU ${result.tinyProduct.sku}, preço ${currency(result.tinyProduct.wholesalePrice)}, estoque ${result.tinyProduct.wholesaleStock}.`
+        `Tiny sincronizado: ${result.updatedRules} variações atualizadas em ${result.checkedSkus} SKUs conferidos. ${result.notFound?.length || 0} SKUs não encontrados no Tiny.`
       );
     } catch (error) {
       setNotice(error.message || "Não foi possível sincronizar o Tiny.");
@@ -388,6 +432,28 @@ function App() {
     setSelectedIds((current) => Array.from(new Set([...current, ...filteredRules.map((rule) => String(rule.id))])));
   }
 
+  if (!isEmbedded) {
+    return (
+      <main className="shell private-shell">
+        <section className="private-panel">
+          <h1>Painel restrito</h1>
+          <p>As configurações de atacado só podem ser acessadas dentro do painel administrativo da Nuvemshop.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!adminReady) {
+    return (
+      <main className="shell private-shell">
+        <section className="private-panel">
+          <h1>Validando acesso</h1>
+          <p>{adminAuthError || "Conectando com segurança ao painel da Nuvemshop..."}</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -396,15 +462,15 @@ function App() {
           <h1>Produtos em atacado</h1>
         </div>
         <div className="top-actions">
-          <a className="button-link" href="/api/rules/export">
+          <button type="button" onClick={exportRules}>
             <Download size={16} />
             Exportar
-          </a>
+          </button>
           <button onClick={syncProducts}>
             <RefreshCw size={16} />
             Sincronizar produtos
           </button>
-          <button onClick={syncTinyTestSku} disabled={tinyLoading}>
+          <button onClick={syncTinyRules} disabled={tinyLoading}>
             <Database size={16} />
             {tinyLoading ? "Sincronizando..." : "Sincronizar Tiny"}
           </button>
@@ -600,10 +666,10 @@ function App() {
               <h2>Importar e exportar tabela</h2>
               <p>Atualize preço e estoque de atacado por CSV ou XLSX.</p>
             </div>
-            <a className="button-link" href="/api/rules/export">
+            <button type="button" onClick={exportRules}>
               <Download size={16} />
               Exportar modelo
-            </a>
+            </button>
           </div>
           <form className="import-form" onSubmit={importRules}>
             <label className="file-picker">

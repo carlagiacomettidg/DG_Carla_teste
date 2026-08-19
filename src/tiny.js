@@ -84,7 +84,7 @@ export async function findTinyProductBySku(sku) {
   });
   const products = unwrapList(retorno.produtos, "produto");
   const exact = products.find((product) => clean(product.codigo).toLowerCase() === normalizedSku.toLowerCase());
-  return exact || products[0] || null;
+  return exact || null;
 }
 
 export async function getTinyWholesalePrice({ productId, priceListId }) {
@@ -128,10 +128,11 @@ export async function getTinyStockByDeposit({
 export async function getTinyWholesaleBySku({
   sku,
   priceListName = process.env.TINY_PRICE_LIST_NAME || "Atacado",
-  depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado"
+  depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado",
+  priceList
 }) {
-  const priceList = await findTinyPriceList(priceListName);
-  if (!priceList) {
+  const resolvedPriceList = priceList || (await findTinyPriceList(priceListName));
+  if (!resolvedPriceList) {
     throw new Error(`Lista de preco "${priceListName}" nao encontrada no Tiny.`);
   }
 
@@ -141,7 +142,7 @@ export async function getTinyWholesaleBySku({
   }
 
   const [price, stockData] = await Promise.all([
-    getTinyWholesalePrice({ productId: product.id, priceListId: priceList.id }),
+    getTinyWholesalePrice({ productId: product.id, priceListId: resolvedPriceList.id }),
     getTinyStockByDeposit({ productId: product.id, depositName })
   ]);
 
@@ -150,9 +151,9 @@ export async function getTinyWholesaleBySku({
     productId: String(product.id || ""),
     productName: clean(product.nome),
     priceList: {
-      id: String(priceList.id || ""),
-      name: clean(priceList.descricao),
-      adjustmentPercent: Number(priceList.acrescimo_desconto || 0)
+      id: String(resolvedPriceList.id || ""),
+      name: clean(resolvedPriceList.descricao),
+      adjustmentPercent: Number(resolvedPriceList.acrescimo_desconto || 0)
     },
     wholesalePrice: Number(price || product.preco || 0),
     wholesaleStock: Number(stockData?.stock || 0),

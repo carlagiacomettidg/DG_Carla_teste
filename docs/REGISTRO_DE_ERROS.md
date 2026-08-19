@@ -356,3 +356,62 @@ O código anterior só sincronizava produtos da Nuvemshop e importação por pla
 **Status**
 
 Em validação no Vercel. Se der erro, o retorno deve aparecer no aviso azul do painel e indicar se falhou token, lista de preço, SKU ou depósito.
+
+## 2026-08-18 - Sincronização Tiny estava limitada a um SKU teste
+
+**Erro**
+
+A integração com Tiny validava corretamente preço e estoque, mas apenas para o SKU configurado em `TINY_TEST_SKU`. Isso não atende o fluxo real, porque a loja precisa conferir todos os produtos/variações que já existem na Nuvemshop e atualizar apenas os SKUs correspondentes no Tiny.
+
+**Onde apareceu**
+
+- Botão `Sincronizar Tiny` no painel do app.
+- Produto teste funcionava, mas os demais produtos da Nuvemshop não eram conferidos.
+
+**Motivo**
+
+O primeiro endpoint foi criado como validação controlada (`/api/tiny/sync-sku`) para reduzir risco. Depois que o SKU teste funcionou, faltava trocar o fluxo do painel para uma sincronização em massa baseada nas regras/produtos já sincronizados da Nuvemshop.
+
+**Como corrigimos**
+
+- Criamos `/api/tiny/sync-rules`.
+- A rotina pega somente SKUs já existentes no app, ou seja, vindos da Nuvemshop.
+- Para cada SKU, consulta o Tiny na lista `Atacado` e depósito `Atacado`.
+- Se o SKU existir no Tiny, atualiza preço e estoque de atacado no app.
+- Se o SKU não existir no Tiny, ignora e mostra no resumo como não encontrado.
+- A busca por produto no Tiny passou a aceitar apenas SKU igual, evitando atualizar um produto errado por resultado parecido.
+- O botão `Sincronizar Tiny` passou a chamar a sincronização em massa.
+- Nova versão: `2026-08-18-tiny-bulk-sync-v1`.
+
+**Status**
+
+Em validação. `TINY_TEST_SKU` pode continuar no Vercel para teste pontual, mas o fluxo principal do painel não depende mais dele.
+
+## 2026-08-19 - Painel administrativo estava acessível pela URL pública
+
+**Erro**
+
+Ao acessar `https://dg-venus-modas.vercel.app/`, o painel de edição do app aparecia fora do administrador da Nuvemshop. Isso expunha visualmente configurações e controles administrativos, como sincronização de produtos, Tiny, preços, estoque e clientes atacado.
+
+**Onde apareceu**
+
+- URL pública do app na Vercel.
+- APIs administrativas em `/api/settings`, `/api/rules`, `/api/tiny/*`, `/api/locations/sync` e `/api/wholesale-customers`.
+
+**Motivo**
+
+O app já era incorporado ao painel da Nuvemshop, mas a mesma tela também renderizava quando aberta diretamente no navegador. Além disso, as chamadas administrativas ainda não exigiam token de sessão do Nexo no backend.
+
+**Como corrigimos**
+
+- O painel React agora só carrega dados e renderiza controles quando está dentro do iframe do admin da Nuvemshop.
+- Se alguém abrir a URL pública diretamente, aparece apenas uma tela de `Painel restrito`.
+- O front passa a obter `getSessionToken` pelo Nexo e enviar `Authorization: Bearer ...` nas chamadas administrativas.
+- O backend valida o JWT do Nexo usando `NUVEMSHOP_CLIENT_SECRET`.
+- Rotas administrativas em `/api/*` passam a exigir token válido.
+- Mantivemos públicas apenas rotas necessárias para OAuth, webhooks, script da vitrine, cadastro de atacado e contexto de preço da vitrine.
+- Nova versão: `2026-08-19-admin-security-v1`.
+
+**Status**
+
+Em validação. O próximo teste deve confirmar que o painel continua abrindo dentro da Nuvemshop e que a URL pública não mostra mais controles administrativos.
