@@ -444,3 +444,36 @@ Corrigido e em validação no admin incorporado.
 **Versão**
 
 `2026-08-19-admin-security-v2`
+
+## 2026-08-20 - Nuvemshop mostra erro generico ao carregar o app
+
+**Erro**
+
+Depois do deploy da versao `2026-08-19-admin-security-v2`, a tela deixou de ficar presa em `Validando acesso`, mas a Nuvemshop passou a mostrar o erro nativo:
+
+```txt
+Ocorreu um erro com o aplicativo Produtos em atacado
+Nao foi possivel carregar o aplicativo neste momento.
+```
+
+**Onde apareceu**
+
+- Admin da Nuvemshop em `Produtos em atacado`.
+
+**Motivo**
+
+O app estava esperando o `connect` do Nexo terminar antes de chamar `iAmReady`. Na pratica, o admin da Nuvemshop pode derrubar ou ocultar o iframe se o app demorar para avisar que terminou o carregamento. Assim, mesmo com o codigo correto para buscar o token depois, a Nuvemshop mostrava o erro generico antes da nossa tela aparecer.
+
+**Como corrigimos**
+
+- O front agora chama `iAmReady(nexoClient)` logo depois de criar o cliente Nexo, para liberar o carregamento do iframe.
+- Depois disso, continua chamando `connect(nexoClient, 10000)` e configurando `getSessionToken`.
+- As APIs administrativas continuam exigindo `Authorization: Bearer ...`; ou seja, a tela pode carregar, mas as chamadas sensiveis seguem protegidas pelo token do painel.
+
+**Status**
+
+Corrigido e em validacao no admin incorporado.
+
+**Versao**
+
+`2026-08-20-admin-security-v3`

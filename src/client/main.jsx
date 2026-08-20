@@ -110,6 +110,7 @@ function App() {
           log: false
         });
 
+        nexoModule.iAmReady(nexoClient);
         await nexoModule.connect(nexoClient, 10000);
         getAdminSessionToken = () => nexoModule.getSessionToken(nexoClient);
         nexoModule.iAmReady(nexoClient);
