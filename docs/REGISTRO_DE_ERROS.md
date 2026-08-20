@@ -661,3 +661,36 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-throttled-sync-v1`
+
+## 2026-08-20 - Sincronizacao do Tiny dependia da aba aberta
+
+**Erro**
+
+A sincronizacao do Tiny era acionada pelo navegador. Se o lojista fechasse a aba, trocasse de tela ou o navegador pausasse a pagina, a sincronizacao parava.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Botao `Sincronizar Tiny`.
+
+**Motivo**
+
+O front fazia chamadas repetidas para processar os lotes. Isso resolvia parcialmente o limite da API, mas mantinha o navegador como motor da sincronizacao. Para muitos itens, o processo poderia demorar horas e exigir que o usuario deixasse a tela aberta.
+
+**Como corrigimos**
+
+- Criamos uma fila persistente de sincronizacao no banco (`tinySyncJob`).
+- O botao `Sincronizar Tiny` agora cria/reinicia a fila e processa apenas um primeiro lote.
+- Criamos endpoint de status para o painel acompanhar progresso, itens restantes, bloqueio e conclusao.
+- Criamos endpoint de cron (`/api/cron/tiny-sync`) para processar lotes automaticamente.
+- No plano Hobby da Vercel, cron subdiario nao e suportado. Para rodar a cada minuto, e necessario usar Vercel Pro ou um agendador externo chamando esse endpoint.
+- O endpoint aceita `Authorization: Bearer CRON_SECRET` ou `?secret=CRON_SECRET`.
+- Se a aba fechar, a fila fica salva e continua quando o cron externo chamar o endpoint.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-background-sync-v1`

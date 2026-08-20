@@ -32,8 +32,8 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-tiny-throttled-sync-v1";
-const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(25, Number(process.env.TINY_SYNC_BATCH_SIZE || 5)));
+const APP_VERSION = "2026-08-20-tiny-background-sync-v1";
+const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(25, Number(process.env.TINY_SYNC_BATCH_SIZE || 8)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -140,6 +140,7 @@ function isPublicRoute(req, pathname) {
     return true;
   }
   if (req.method === "GET" && pathname === "/api/storefront-wholesale-context") return true;
+  if (req.method === "GET" && pathname === "/api/cron/tiny-sync") return true;
   if (req.method === "POST" && pathname === "/api/wholesale-requests") return true;
   return false;
 }
@@ -419,6 +420,226 @@ async function listNuvemshopWholesaleCustomers(db) {
   return customers.filter(isWholesaleNuvemshopCustomer).map(mapNuvemshopWholesaleCustomer);
 }
 
+function tinySyncStatus(job = null) {
+  if (!job) {
+    return {
+      status: "idle",
+      totalItems: 0,
+      processedItems: 0,
+      remainingItems: 0,
+      updatedRulesTotal: 0,
+      skippedItemsTotal: 0,
+      errorsTotal: 0,
+      notFoundTotal: 0,
+      lastMessage: "Nenhuma sincronizacao do Tiny em andamento."
+    };
+  }
+
+  const totalItems = Array.isArray(job.items) ? job.items.length : Number(job.totalItems || 0);
+  const processedItems = Math.min(Number(job.cursor || 0), totalItems);
+  return {
+    status: job.status || "queued",
+    totalItems,
+    processedItems,
+    remainingItems: Math.max(0, totalItems - processedItems),
+    updatedRulesTotal: Number(job.updatedRulesTotal || 0),
+    skippedItemsTotal: Number(job.skippedItemsTotal || 0),
+    errorsTotal: Array.isArray(job.errors) ? job.errors.length : 0,
+    notFoundTotal: Array.isArray(job.notFound) ? job.notFound.length : 0,
+    priceListKeyword: job.priceListKeyword || "",
+    depositName: job.depositName || "",
+    startedAt: job.startedAt || "",
+    updatedAt: job.updatedAt || "",
+    finishedAt: job.finishedAt || "",
+    rateLimitedUntil: job.rateLimitedUntil || "",
+    lastMessage: job.lastMessage || ""
+  };
+}
+
+async function startTinySyncJob({ restart = false } = {}) {
+  const current = await readDb();
+  const currentJob = current.tinySyncJob;
+  if (
+    currentJob &&
+    !restart &&
+    ["queued", "processing", "rate_limited"].includes(String(currentJob.status || ""))
+  ) {
+    return { status: tinySyncStatus(currentJob), rules: current.rules || [] };
+  }
+
+  const rulesWithSku = (current.rules || []).filter((rule) => normalizeSku(rule.sku));
+  if (!rulesWithSku.length) {
+    throw new Error("Nenhum SKU da Nuvemshop encontrado no app. Clique primeiro em Sincronizar produtos.");
+  }
+
+  const priceListKeyword = process.env.TINY_PRICE_LIST_KEYWORD || process.env.TINY_PRICE_LIST_NAME || "Atacado";
+  const depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado";
+  const priceLists = await findTinyPriceLists({ keyword: priceListKeyword });
+  if (!priceLists.length) {
+    throw new Error(`Nenhuma lista de preco contendo "${priceListKeyword}" foi encontrada no Tiny.`);
+  }
+
+  const items = await buildTinyWholesalePriceIndex(priceLists);
+  const now = new Date().toISOString();
+  const job = {
+    id: randomUUID(),
+    status: items.length ? "queued" : "done",
+    priceListKeyword,
+    depositName,
+    priceLists: priceLists.map((list) => ({
+      id: String(list.id || ""),
+      name: String(list.descricao || ""),
+      adjustmentPercent: Number(list.acrescimo_desconto || 0)
+    })),
+    items,
+    cursor: 0,
+    totalItems: items.length,
+    updatedRulesTotal: 0,
+    skippedItemsTotal: 0,
+    errors: [],
+    notFound: [],
+    startedAt: now,
+    updatedAt: now,
+    finishedAt: items.length ? "" : now,
+    lastMessage: items.length
+      ? `Fila criada com ${items.length} itens de preco do Tiny.`
+      : "Nenhum item de preco foi encontrado nas listas de atacado do Tiny."
+  };
+
+  const next = await updateDb((state) => {
+    state.tinySyncJob = job;
+    state.tinySyncCursor = 0;
+    return state;
+  });
+
+  return { status: tinySyncStatus(next.tinySyncJob), rules: next.rules || [] };
+}
+
+async function processTinySyncJobBatch() {
+  const db = await readDb();
+  const job = db.tinySyncJob;
+  if (!job || !Array.isArray(job.items)) {
+    return { status: tinySyncStatus(null), rules: db.rules || [] };
+  }
+
+  const nowMs = Date.now();
+  if (job.rateLimitedUntil && new Date(job.rateLimitedUntil).getTime() > nowMs) {
+    return { status: tinySyncStatus(job), rules: db.rules || [] };
+  }
+
+  if (job.status === "done") {
+    return { status: tinySyncStatus(job), rules: db.rules || [] };
+  }
+
+  const rulesWithSku = (db.rules || []).filter((rule) => normalizeSku(rule.sku));
+  const bySku = new Map();
+  rulesWithSku.forEach((rule) => {
+    const sku = normalizeSku(rule.sku);
+    if (!bySku.has(sku)) bySku.set(sku, []);
+    bySku.get(sku).push(rule.id);
+  });
+
+  const allItems = job.items;
+  const currentCursor = Math.max(0, Math.min(Number(job.cursor || 0), allItems.length));
+  const batchItems = allItems.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
+  const tinyBySku = new Map();
+  const batchErrors = [];
+  const batchNotFound = [];
+  let stoppedByRateLimit = false;
+  let skippedItems = 0;
+  let processedItems = 0;
+
+  for (const item of batchItems) {
+    try {
+      await wait(650);
+      const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName: job.depositName });
+      const sku = normalizeSku(stockData?.sku);
+      if (!sku || !bySku.has(sku)) {
+        skippedItems += 1;
+        processedItems += 1;
+        continue;
+      }
+      tinyBySku.set(sku, {
+        sku,
+        productId: String(item.productId || ""),
+        productName: stockData?.productName || "",
+        priceList: item.priceList,
+        wholesalePrice: Number(item.wholesalePrice || 0),
+        wholesaleStock: Number(stockData?.stock || 0),
+        stockDeposit: stockData?.deposit
+          ? {
+              name: cleanString(stockData.deposit.nome),
+              stock: Number(stockData.deposit.saldo || 0),
+              ignored: cleanString(stockData.deposit.desconsiderar)
+            }
+          : null
+      });
+      processedItems += 1;
+    } catch (error) {
+      const message = error.message || "";
+      if (error.code === "TINY_RATE_LIMIT" || message.toLowerCase().includes("api bloqueada")) {
+        stoppedByRateLimit = true;
+        batchErrors.push({ productId: item.productId, error: message });
+        break;
+      }
+      if (message.includes("nao encontrado no Tiny")) {
+        batchNotFound.push(item.productId);
+      } else {
+        batchErrors.push({ productId: item.productId, error: message });
+      }
+      processedItems += 1;
+    }
+  }
+
+  const nextCursor = currentCursor + processedItems >= allItems.length ? allItems.length : currentCursor + processedItems;
+  const finished = !stoppedByRateLimit && nextCursor >= allItems.length;
+  const rateLimitedUntil = stoppedByRateLimit ? new Date(Date.now() + 2 * 60 * 1000).toISOString() : "";
+  const updatedAt = new Date().toISOString();
+
+  const next = await updateDb((state) => {
+    let updatedRules = 0;
+    state.rules = (state.rules || []).map((rule) => {
+      const tinyProduct = tinyBySku.get(normalizeSku(rule.sku));
+      if (!tinyProduct) return rule;
+      updatedRules += 1;
+
+      return {
+        ...rule,
+        wholesalePrice: money(tinyProduct.wholesalePrice),
+        wholesaleStock: Number(tinyProduct.wholesaleStock || 0),
+        tinyProductId: tinyProduct.productId,
+        tinyPriceListId: tinyProduct.priceList.id,
+        tinyPriceListName: tinyProduct.priceList.name,
+        tinyStockDepositName: tinyProduct.stockDeposit?.name || job.depositName,
+        tinySyncedAt: updatedAt,
+        enabled: rule.enabled !== false
+      };
+    });
+
+    state.tinySyncJob = {
+      ...job,
+      status: stoppedByRateLimit ? "rate_limited" : finished ? "done" : "processing",
+      cursor: nextCursor,
+      updatedRulesTotal: Number(job.updatedRulesTotal || 0) + updatedRules,
+      skippedItemsTotal: Number(job.skippedItemsTotal || 0) + skippedItems,
+      errors: [...(job.errors || []), ...batchErrors].slice(-100),
+      notFound: [...(job.notFound || []), ...batchNotFound].slice(-100),
+      updatedAt,
+      finishedAt: finished ? updatedAt : "",
+      rateLimitedUntil,
+      lastMessage: stoppedByRateLimit
+        ? "Tiny bloqueou temporariamente a API. A sincronizacao vai continuar automaticamente depois da pausa."
+        : finished
+          ? "Sincronizacao do Tiny finalizada."
+          : `Lote processado. Faltam ${Math.max(0, allItems.length - nextCursor)} itens de preco.`
+    };
+
+    return state;
+  });
+
+  return { status: tinySyncStatus(next.tinySyncJob), rules: next.rules || [] };
+}
+
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (!requireAdminApi(req, res, url.pathname)) return true;
@@ -616,146 +837,49 @@ async function handleApi(req, res) {
     }
   }
 
-  if (isRoute(req, "POST", "/api/tiny/sync-rules")) {
+  if (isRoute(req, "GET", "/api/tiny/sync-rules/status")) {
     try {
       const db = await readDb();
-      const rulesWithSku = (db.rules || []).filter((rule) => normalizeSku(rule.sku));
+      return sendJson(req, res, 200, { ok: true, status: tinySyncStatus(db.tinySyncJob || null) });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
+  }
 
-      if (!rulesWithSku.length) {
-        return sendJson(req, res, 400, {
-          error: "Nenhum SKU da Nuvemshop encontrado no app. Clique primeiro em Sincronizar produtos."
-        });
+  if (isRoute(req, "POST", "/api/tiny/sync-rules/start")) {
+    try {
+      const body = await parseBody(req);
+      const result = await startTinySyncJob({ restart: body.restart !== false });
+      return sendJson(req, res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
+  }
+
+  if (isRoute(req, "POST", "/api/tiny/sync-rules/process") || isRoute(req, "POST", "/api/tiny/sync-rules")) {
+    try {
+      const db = await readDb();
+      if (!db.tinySyncJob) {
+        await startTinySyncJob({ restart: true });
       }
+      const result = await processTinySyncJobBatch();
+      return sendJson(req, res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
+  }
 
-      const priceListKeyword = process.env.TINY_PRICE_LIST_KEYWORD || process.env.TINY_PRICE_LIST_NAME || "Atacado";
-      const depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado";
-      const priceLists = await findTinyPriceLists({ keyword: priceListKeyword });
-      if (!priceLists.length) {
-        return sendJson(req, res, 400, { error: `Nenhuma lista de preco contendo "${priceListKeyword}" foi encontrada no Tiny.` });
-      }
+  if (isRoute(req, "GET", "/api/cron/tiny-sync")) {
+    const cronSecret = cleanString(process.env.CRON_SECRET);
+    const authorization = cleanString(req.headers.authorization);
+    const querySecret = cleanString(url.searchParams.get("secret"));
+    if (cronSecret && authorization !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+      return sendJson(req, res, 401, { error: "Cron nao autorizado." });
+    }
 
-      const bySku = new Map();
-      rulesWithSku.forEach((rule) => {
-        const sku = normalizeSku(rule.sku);
-        if (!bySku.has(sku)) bySku.set(sku, []);
-        bySku.get(sku).push(rule.id);
-      });
-
-      const allSkus = Array.from(bySku.keys());
-      const existingJob = db.tinySyncJob || {};
-      const jobMatches =
-        existingJob.priceListKeyword === priceListKeyword &&
-        existingJob.depositName === depositName &&
-        Array.isArray(existingJob.items) &&
-        Number(existingJob.cursor || 0) < existingJob.items.length;
-      const syncJob = jobMatches
-        ? existingJob
-        : {
-            priceListKeyword,
-            depositName,
-            createdAt: new Date().toISOString(),
-            cursor: 0,
-            items: await buildTinyWholesalePriceIndex(priceLists)
-          };
-      const allItems = Array.isArray(syncJob.items) ? syncJob.items : [];
-      const currentCursor = Math.max(0, Math.min(Number(syncJob.cursor || 0), allItems.length));
-      const batchItems = allItems.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
-      const nextCursor = currentCursor + batchItems.length >= allItems.length ? 0 : currentCursor + batchItems.length;
-      const tinyBySku = new Map();
-      const notFound = [];
-      const errors = [];
-      let stoppedByRateLimit = false;
-      let skippedItems = 0;
-
-      for (const item of batchItems) {
-        try {
-          await wait(650);
-          const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName });
-          const sku = normalizeSku(stockData?.sku);
-          if (!sku || !bySku.has(sku)) {
-            skippedItems += 1;
-            continue;
-          }
-          tinyBySku.set(sku, {
-            sku,
-            productId: String(item.productId || ""),
-            productName: stockData?.productName || "",
-            priceList: item.priceList,
-            wholesalePrice: Number(item.wholesalePrice || 0),
-            wholesaleStock: Number(stockData?.stock || 0),
-            stockDeposit: stockData?.deposit
-              ? {
-                  name: cleanString(stockData.deposit.nome),
-                  stock: Number(stockData.deposit.saldo || 0),
-                  ignored: cleanString(stockData.deposit.desconsiderar)
-                }
-              : null
-          });
-        } catch (error) {
-          const message = error.message || "";
-          if (error.code === "TINY_RATE_LIMIT" || message.toLowerCase().includes("api bloqueada")) {
-            stoppedByRateLimit = true;
-            errors.push({ productId: item.productId, error: message });
-            break;
-          } else if (message.includes("nao encontrado no Tiny")) {
-            notFound.push(item.productId);
-          } else {
-            errors.push({ productId: item.productId, error: message });
-          }
-        }
-      }
-
-      const next = await updateDb((state) => {
-        state.rules = (state.rules || []).map((rule) => {
-          const tinyProduct = tinyBySku.get(normalizeSku(rule.sku));
-          if (!tinyProduct) return rule;
-
-          return {
-            ...rule,
-            wholesalePrice: money(tinyProduct.wholesalePrice),
-            wholesaleStock: Number(tinyProduct.wholesaleStock || 0),
-            tinyProductId: tinyProduct.productId,
-            tinyPriceListId: tinyProduct.priceList.id,
-            tinyPriceListName: tinyProduct.priceList.name,
-            tinyStockDepositName: tinyProduct.stockDeposit?.name || depositName,
-            tinySyncedAt: new Date().toISOString(),
-            enabled: rule.enabled !== false
-          };
-        });
-        state.tinySyncJob = stoppedByRateLimit || nextCursor > 0
-          ? {
-              ...syncJob,
-              cursor: stoppedByRateLimit ? currentCursor : nextCursor
-            }
-          : null;
-        state.tinySyncCursor = 0;
-        return state;
-      });
-
-      const updatedRules = (next.rules || []).filter((rule) => tinyBySku.has(normalizeSku(rule.sku))).length;
-
-      return sendJson(req, res, 200, {
-        ok: true,
-        priceListKeyword,
-        priceLists: priceLists.map((list) => ({
-          id: String(list.id || ""),
-          name: String(list.descricao || ""),
-          adjustmentPercent: Number(list.acrescimo_desconto || 0)
-        })),
-        checkedSkus: allSkus.length,
-        sourceItems: allItems.length,
-        batchStart: currentCursor + 1,
-        batchSize: batchItems.length,
-        nextCursor: stoppedByRateLimit ? currentCursor : nextCursor,
-        remainingSkus: stoppedByRateLimit ? allItems.length - currentCursor : (nextCursor === 0 ? 0 : allItems.length - nextCursor),
-        stoppedByRateLimit,
-        updatedSkus: tinyBySku.size,
-        updatedRules,
-        skippedItems,
-        notFound,
-        errors,
-        rules: next.rules
-      });
+    try {
+      const result = await processTinySyncJobBatch();
+      return sendJson(req, res, 200, { ok: true, ...result, rules: undefined });
     } catch (error) {
       return sendJson(req, res, 400, { error: error.message });
     }

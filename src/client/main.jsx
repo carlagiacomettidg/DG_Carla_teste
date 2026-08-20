@@ -9,12 +9,6 @@ if (typeof window !== "undefined" && !window.global) {
 const isEmbedded = window.self !== window.top;
 let getAdminSessionToken = null;
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -83,6 +77,17 @@ function currency(value) {
   });
 }
 
+function tinyStatusText(status) {
+  if (!status || status.status === "idle") return "Nenhuma sincronização do Tiny em andamento.";
+  if (status.status === "done") {
+    return `Finalizada: ${status.updatedRulesTotal || 0} variações atualizadas.`;
+  }
+  if (status.status === "rate_limited") {
+    return "Tiny pausou a API temporariamente. O app vai tentar continuar automaticamente.";
+  }
+  return `Em andamento: ${status.processedItems || 0} de ${status.totalItems || 0} itens de preço processados.`;
+}
+
 function formToObject(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
@@ -104,6 +109,7 @@ function App() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const [visibleRuleCount, setVisibleRuleCount] = useState(80);
   const [tinyLoading, setTinyLoading] = useState(false);
+  const [tinySyncStatus, setTinySyncStatus] = useState(null);
   const [adminReady, setAdminReady] = useState(false);
   const [adminAuthError, setAdminAuthError] = useState("");
 
@@ -134,13 +140,31 @@ function App() {
 
   useEffect(() => {
     if (!isEmbedded || !adminReady) return;
-    Promise.all([api("/api/settings"), api("/api/rules")])
-      .then(([settingsData, rulesData]) => {
+    Promise.all([api("/api/settings"), api("/api/rules"), api("/api/tiny/sync-rules/status")])
+      .then(([settingsData, rulesData, tinyStatusData]) => {
         setSettings(settingsData);
         setRules(rulesData);
+        setTinySyncStatus(tinyStatusData.status);
       })
       .catch((error) => setNotice(error.message));
   }, [adminReady]);
+
+  useEffect(() => {
+    if (!adminReady || !tinySyncStatus || !["queued", "processing", "rate_limited"].includes(tinySyncStatus.status)) return;
+
+    const timer = window.setInterval(async () => {
+      try {
+        const result = await api("/api/tiny/sync-rules/process", { method: "POST", body: JSON.stringify({}) });
+        setTinySyncStatus(result.status);
+        if (Array.isArray(result.rules)) setRules(result.rules);
+        setNotice(tinyStatusText(result.status));
+      } catch (error) {
+        setNotice(error.message || "Não foi possível atualizar a sincronização do Tiny.");
+      }
+    }, 60000);
+
+    return () => window.clearInterval(timer);
+  }, [adminReady, tinySyncStatus?.status]);
 
   useEffect(() => {
     setVisibleRuleCount(80);
@@ -293,53 +317,19 @@ function App() {
   async function syncTinyRules() {
     if (tinyLoading) return;
     setTinyLoading(true);
-    setNotice("Iniciando sincronização do Tiny...");
+    setNotice("Criando fila de sincronização do Tiny...");
     try {
-      let totalUpdatedRules = 0;
-      let totalNotFound = 0;
-      let totalErrors = 0;
-      let latestResult = null;
-      const maxBatches = 120;
-      let rateLimitRetries = 0;
+      const started = await api("/api/tiny/sync-rules/start", {
+        method: "POST",
+        body: JSON.stringify({ restart: true })
+      });
+      setTinySyncStatus(started.status);
+      if (Array.isArray(started.rules)) setRules(started.rules);
 
-      for (let batch = 1; batch <= maxBatches; batch += 1) {
-        const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
-        latestResult = result;
-        totalUpdatedRules += Number(result.updatedRules || 0);
-        totalNotFound += Number(result.notFound?.length || 0);
-        totalErrors += Number(result.errors?.length || 0);
-        setRules(result.rules);
-
-        if (result.stoppedByRateLimit) {
-          rateLimitRetries += 1;
-          if (rateLimitRetries <= 3) {
-            setNotice(
-              `O Tiny bloqueou temporariamente a API. Já atualizamos ${totalUpdatedRules} variações. Vou aguardar 2 minutos e continuar automaticamente do ponto em que parou.`
-            );
-            await wait(120000);
-            batch -= 1;
-            continue;
-          }
-
-          setNotice(
-            `O Tiny continuou bloqueando a API após algumas tentativas. Já atualizamos ${totalUpdatedRules} variações nesta rodada. Aguarde alguns minutos e clique em Sincronizar Tiny para continuar do ponto em que parou.`
-          );
-          return;
-        }
-
-        rateLimitRetries = 0;
-        const remaining = Number(result.remainingSkus || 0);
-        setNotice(
-          `Sincronizando Tiny automaticamente: lote ${batch} concluído (${result.batchSize} itens de preço conferidos). Faltam ${remaining} itens de preço.`
-        );
-
-        if (remaining <= 0) break;
-        await wait(5000);
-      }
-
-      setNotice(
-        `Tiny sincronizado: ${totalUpdatedRules} variações atualizadas a partir de ${latestResult?.sourceItems || 0} itens de preço do Tiny usando ${latestResult?.priceLists?.length || 0} listas de atacado. ${totalNotFound} itens não encontrados${totalErrors ? ` e ${totalErrors} avisos retornados.` : "."}`
-      );
+      const processed = await api("/api/tiny/sync-rules/process", { method: "POST", body: JSON.stringify({}) });
+      setTinySyncStatus(processed.status);
+      if (Array.isArray(processed.rules)) setRules(processed.rules);
+      setNotice(tinyStatusText(processed.status));
     } catch (error) {
       setNotice(error.message || "Não foi possível sincronizar o Tiny.");
     } finally {
@@ -526,6 +516,21 @@ function App() {
       </header>
 
       {notice && <div className="admin-feedback">{notice}</div>}
+
+      {tinySyncStatus && tinySyncStatus.status !== "idle" && (
+        <section className="sync-status-panel">
+          <div>
+            <strong>Sincronização Tiny</strong>
+            <p>{tinyStatusText(tinySyncStatus)}</p>
+          </div>
+          <div className="sync-progress">
+            <span>
+              {tinySyncStatus.processedItems || 0}/{tinySyncStatus.totalItems || 0}
+            </span>
+            <progress value={tinySyncStatus.processedItems || 0} max={tinySyncStatus.totalItems || 1} />
+          </div>
+        </section>
+      )}
 
       {!storeConnected && (
         <section className="connection-banner">
