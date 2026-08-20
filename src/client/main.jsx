@@ -9,6 +9,12 @@ if (typeof window !== "undefined" && !window.global) {
 const isEmbedded = window.self !== window.top;
 let getAdminSessionToken = null;
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -287,18 +293,41 @@ function App() {
   async function syncTinyRules() {
     if (tinyLoading) return;
     setTinyLoading(true);
-    setNotice("Conferindo um lote de SKUs da Nuvemshop no Tiny...");
+    setNotice("Iniciando sincronização do Tiny...");
     try {
-      const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
-      setRules(result.rules);
-      if (result.stoppedByRateLimit) {
-        setNotice("O Tiny bloqueou temporariamente a API por excesso de acessos. Aguarde alguns minutos e clique em Sincronizar Tiny novamente.");
-      } else {
-        const remaining = result.remainingSkus || 0;
+      let totalUpdatedRules = 0;
+      let totalNotFound = 0;
+      let totalErrors = 0;
+      let latestResult = null;
+      const maxBatches = 120;
+
+      for (let batch = 1; batch <= maxBatches; batch += 1) {
+        const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
+        latestResult = result;
+        totalUpdatedRules += Number(result.updatedRules || 0);
+        totalNotFound += Number(result.notFound?.length || 0);
+        totalErrors += Number(result.errors?.length || 0);
+        setRules(result.rules);
+
+        if (result.stoppedByRateLimit) {
+          setNotice(
+            `O Tiny bloqueou temporariamente a API por excesso de acessos. Já atualizamos ${totalUpdatedRules} variações nesta rodada. Aguarde alguns minutos e clique em Sincronizar Tiny novamente para continuar.`
+          );
+          return;
+        }
+
+        const remaining = Number(result.remainingSkus || 0);
         setNotice(
-          `Tiny sincronizado: ${result.updatedRules} variações atualizadas neste lote (${result.batchSize} SKUs conferidos, ${remaining} SKUs restantes) usando ${result.priceLists?.length || 0} listas de atacado. ${result.notFound?.length || 0} SKUs não encontrados no Tiny.`
+          `Sincronizando Tiny automaticamente: lote ${batch} concluído (${result.batchSize} SKUs conferidos). Faltam ${remaining} SKUs.`
         );
+
+        if (remaining <= 0) break;
+        await wait(1800);
       }
+
+      setNotice(
+        `Tiny sincronizado: ${totalUpdatedRules} variações atualizadas em ${latestResult?.checkedSkus || 0} SKUs conferidos usando ${latestResult?.priceLists?.length || 0} listas de atacado. ${totalNotFound} SKUs não encontrados no Tiny${totalErrors ? ` e ${totalErrors} avisos retornados.` : "."}`
+      );
     } catch (error) {
       setNotice(error.message || "Não foi possível sincronizar o Tiny.");
     } finally {
@@ -479,7 +508,7 @@ function App() {
           </button>
           <button onClick={syncTinyRules} disabled={tinyLoading}>
             <Database size={16} />
-            {tinyLoading ? "Sincronizando lote..." : "Sincronizar Tiny"}
+            {tinyLoading ? "Sincronizando Tiny..." : "Sincronizar Tiny"}
           </button>
         </div>
       </header>

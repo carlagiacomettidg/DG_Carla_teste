@@ -570,3 +570,33 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-batch-sync-v1`
+
+## 2026-08-20 - Sincronizacao em lote exigia varios cliques no painel
+
+**Erro**
+
+Depois de limitar a sincronizacao do Tiny por lote, o painel informava algo como `25 SKUs conferidos, 1246 SKUs restantes`, mas exigia que o usuario clicasse varias vezes em `Sincronizar Tiny` para continuar.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Botao `Sincronizar Tiny`.
+
+**Motivo**
+
+O lote corrigia o excesso de chamadas ao Tiny, mas a experiencia ficou manual demais. Tecnicamente o servidor continuava pelo cursor, mas o front nao disparava os proximos lotes automaticamente.
+
+**Como corrigimos**
+
+- O clique em `Sincronizar Tiny` agora inicia uma sincronizacao automatica completa.
+- O front chama os lotes em sequencia, com uma pausa curta entre eles para respeitar a API do Tiny.
+- A tela mostra progresso por lote e quantos SKUs ainda faltam.
+- Se o Tiny bloquear a API, o processo para e informa que e necessario aguardar alguns minutos para continuar.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-auto-batch-v1`

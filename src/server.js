@@ -32,7 +32,7 @@ import { findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyWholesaleB
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-tiny-batch-sync-v1";
+const APP_VERSION = "2026-08-20-tiny-auto-batch-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.TINY_SYNC_BATCH_SIZE || 25)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
