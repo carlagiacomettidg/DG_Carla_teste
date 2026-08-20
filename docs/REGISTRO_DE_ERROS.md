@@ -538,3 +538,35 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-price-lists-v1`
+
+## 2026-08-20 - Tiny bloqueou a API por excesso de acessos durante sincronizacao
+
+**Erro**
+
+Ao clicar em `Sincronizar Tiny`, o app retornava `API Bloqueada - Excedido o numero de acessos a API, aguarde alguns minutos e tente novamente` ou ficava carregando por muito tempo.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Botao `Sincronizar Tiny`.
+
+**Motivo**
+
+A loja real tem muitos produtos/variacoes e varias listas de preco de atacado. A versao anterior tentava conferir muitos SKUs em uma unica execucao e ainda consultava varias listas do Tiny para cada SKU. Isso gerava muitas chamadas em pouco tempo e o Tiny bloqueava temporariamente o token.
+
+**Como corrigimos**
+
+- A sincronizacao do Tiny passou a rodar por lote.
+- O tamanho padrao do lote e `25` SKUs, configuravel por `TINY_SYNC_BATCH_SIZE`.
+- O app salva um cursor (`tinySyncCursor`) para a proxima sincronizacao continuar do proximo lote.
+- O botao fica bloqueado enquanto sincroniza, evitando clique duplo.
+- Se o Tiny bloquear a API, o app interrompe o lote e mostra uma mensagem clara para aguardar alguns minutos.
+- Para cada SKU, as listas de preco sao testadas em sequencia e a busca para na primeira lista de atacado com preco, evitando chamadas desnecessarias.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-batch-sync-v1`

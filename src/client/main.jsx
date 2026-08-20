@@ -285,14 +285,20 @@ function App() {
   }
 
   async function syncTinyRules() {
+    if (tinyLoading) return;
     setTinyLoading(true);
-    setNotice("Conferindo SKUs da Nuvemshop no Tiny...");
+    setNotice("Conferindo um lote de SKUs da Nuvemshop no Tiny...");
     try {
       const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
       setRules(result.rules);
-      setNotice(
-        `Tiny sincronizado: ${result.updatedRules} variações atualizadas em ${result.checkedSkus} SKUs conferidos usando ${result.priceLists?.length || 0} listas de atacado. ${result.notFound?.length || 0} SKUs não encontrados no Tiny.`
-      );
+      if (result.stoppedByRateLimit) {
+        setNotice("O Tiny bloqueou temporariamente a API por excesso de acessos. Aguarde alguns minutos e clique em Sincronizar Tiny novamente.");
+      } else {
+        const remaining = result.remainingSkus || 0;
+        setNotice(
+          `Tiny sincronizado: ${result.updatedRules} variações atualizadas neste lote (${result.batchSize} SKUs conferidos, ${remaining} SKUs restantes) usando ${result.priceLists?.length || 0} listas de atacado. ${result.notFound?.length || 0} SKUs não encontrados no Tiny.`
+        );
+      }
     } catch (error) {
       setNotice(error.message || "Não foi possível sincronizar o Tiny.");
     } finally {
@@ -473,7 +479,7 @@ function App() {
           </button>
           <button onClick={syncTinyRules} disabled={tinyLoading}>
             <Database size={16} />
-            {tinyLoading ? "Sincronizando..." : "Sincronizar Tiny"}
+            {tinyLoading ? "Sincronizando lote..." : "Sincronizar Tiny"}
           </button>
         </div>
       </header>

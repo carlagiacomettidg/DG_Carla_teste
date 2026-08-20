@@ -32,7 +32,8 @@ import { findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyWholesaleB
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-tiny-price-lists-v1";
+const APP_VERSION = "2026-08-20-tiny-batch-sync-v1";
+const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.TINY_SYNC_BATCH_SIZE || 25)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -634,11 +635,16 @@ async function handleApi(req, res) {
         bySku.get(sku).push(rule.id);
       });
 
+      const allSkus = Array.from(bySku.keys());
+      const currentCursor = Math.max(0, Math.min(Number(db.tinySyncCursor || 0), allSkus.length));
+      const batchSkus = allSkus.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
+      const nextCursor = currentCursor + batchSkus.length >= allSkus.length ? 0 : currentCursor + batchSkus.length;
       const tinyBySku = new Map();
       const notFound = [];
       const errors = [];
+      let stoppedByRateLimit = false;
 
-      for (const sku of bySku.keys()) {
+      for (const sku of batchSkus) {
         try {
           const tinyProduct = await getTinyWholesaleBySkuFromPriceLists({
             sku,
@@ -648,7 +654,11 @@ async function handleApi(req, res) {
           tinyBySku.set(normalizeSku(tinyProduct.sku), tinyProduct);
         } catch (error) {
           const message = error.message || "";
-          if (message.includes("nao encontrado no Tiny")) {
+          if (error.code === "TINY_RATE_LIMIT" || message.toLowerCase().includes("api bloqueada")) {
+            stoppedByRateLimit = true;
+            errors.push({ sku, error: message });
+            break;
+          } else if (message.includes("nao encontrado no Tiny")) {
             notFound.push(sku);
           } else {
             errors.push({ sku, error: message });
@@ -673,6 +683,7 @@ async function handleApi(req, res) {
             enabled: rule.enabled !== false
           };
         });
+        state.tinySyncCursor = stoppedByRateLimit ? currentCursor : nextCursor;
         return state;
       });
 
@@ -686,7 +697,12 @@ async function handleApi(req, res) {
           name: String(list.descricao || ""),
           adjustmentPercent: Number(list.acrescimo_desconto || 0)
         })),
-        checkedSkus: bySku.size,
+        checkedSkus: allSkus.length,
+        batchStart: currentCursor + 1,
+        batchSize: batchSkus.length,
+        nextCursor: stoppedByRateLimit ? currentCursor : nextCursor,
+        remainingSkus: stoppedByRateLimit ? allSkus.length - currentCursor : (nextCursor === 0 ? 0 : allSkus.length - nextCursor),
+        stoppedByRateLimit,
         updatedSkus: tinyBySku.size,
         updatedRules,
         notFound,

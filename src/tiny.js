@@ -1,4 +1,5 @@
 const TINY_API_BASE = "https://api.tiny.com.br/api2";
+const tinyBlockedPattern = /api bloqueada|excedido o numero de acessos|excedido o número de acessos/i;
 
 function clean(value) {
   return String(value || "").trim();
@@ -54,6 +55,11 @@ async function tinyRequest(endpoint, params = {}) {
       .map((item) => item?.erro || item?.mensagem || JSON.stringify(item))
       .filter(Boolean)
       .join("; ");
+    if (tinyBlockedPattern.test(messages)) {
+      const error = new Error("API Bloqueada - Excedido o numero de acessos a API. Aguarde alguns minutos e tente novamente.");
+      error.code = "TINY_RATE_LIMIT";
+      throw error;
+    }
     throw new Error(messages || `Tiny retornou erro em ${endpoint}.`);
   }
 
@@ -225,17 +231,23 @@ export async function getTinyWholesaleBySkuFromPriceLists({
     throw new Error(`Produto com SKU "${sku}" nao encontrado no Tiny.`);
   }
 
-  const [stockData, ...prices] = await Promise.all([
-    getTinyStockByDeposit({ productId: product.id, depositName }),
-    ...lists.map((priceList) => getTinyWholesalePrice({ productId: product.id, priceListId: priceList.id }))
-  ]);
-  const matchedIndex = prices.findIndex((price) => Number(price || 0) > 0);
-  if (matchedIndex < 0) {
+  let resolvedPriceList = null;
+  let price = 0;
+
+  for (const priceList of lists) {
+    const listPrice = await getTinyWholesalePrice({ productId: product.id, priceListId: priceList.id });
+    if (Number(listPrice || 0) > 0) {
+      resolvedPriceList = priceList;
+      price = listPrice;
+      break;
+    }
+  }
+
+  if (!resolvedPriceList) {
     throw new Error(`Preco de atacado para SKU "${sku}" nao encontrado nas listas de atacado do Tiny.`);
   }
 
-  const resolvedPriceList = lists[matchedIndex];
-  const price = prices[matchedIndex];
+  const stockData = await getTinyStockByDeposit({ productId: product.id, depositName });
 
   return {
     sku: clean(product.codigo || sku),
