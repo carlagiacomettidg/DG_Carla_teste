@@ -85,7 +85,10 @@ function tinyStatusText(status) {
   if (status.status === "rate_limited") {
     return "Tiny pausou a API temporariamente. O app vai tentar continuar automaticamente.";
   }
-  return `Em andamento: ${status.processedItems || 0} de ${status.totalItems || 0} itens de preço processados.`;
+  const estimate = status.estimatedMinutesRemaining
+    ? ` Estimativa: ${status.estimatedMinutesRemaining} min restantes.`
+    : "";
+  return `Em andamento: ${status.processedItems || 0} de ${status.totalItems || 0} itens de preço processados.${estimate}`;
 }
 
 function formToObject(form) {

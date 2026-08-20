@@ -694,3 +694,37 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-background-sync-v1`
+
+## 2026-08-20 - Sincronizacao em segundo plano estava lenta demais
+
+**Erro**
+
+A fila em segundo plano funcionava, mas processava poucos itens em muito tempo. Exemplo observado: de `578` para `810` itens processados em cerca de 30 minutos.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Status da sincronizacao Tiny.
+
+**Motivo**
+
+O lote estava conservador demais (`8` itens) e havia uma pausa fixa de `650ms` antes de cada consulta de estoque no Tiny. Isso reduziu o risco de bloqueio, mas tornou a sincronizacao inviavel para milhares de itens.
+
+**Como corrigimos**
+
+- Aumentamos o lote padrao para `30` itens por execucao.
+- Reduzimos a pausa padrao entre itens para `120ms`.
+- Criamos variaveis para ajustar sem mexer em codigo:
+  - `TINY_SYNC_BATCH_SIZE`
+  - `TINY_SYNC_ITEM_DELAY_MS`
+  - `TINY_SYNC_MAX_RUNTIME_MS`
+- O processador agora aproveita melhor cada chamada, respeitando um limite de tempo por execucao.
+- O painel passou a mostrar estimativa de minutos restantes.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-faster-background-sync-v1`

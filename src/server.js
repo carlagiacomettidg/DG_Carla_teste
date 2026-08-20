@@ -32,8 +32,10 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-tiny-background-sync-v1";
-const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(25, Number(process.env.TINY_SYNC_BATCH_SIZE || 8)));
+const APP_VERSION = "2026-08-20-tiny-faster-background-sync-v1";
+const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
+const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
+const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -437,11 +439,19 @@ function tinySyncStatus(job = null) {
 
   const totalItems = Array.isArray(job.items) ? job.items.length : Number(job.totalItems || 0);
   const processedItems = Math.min(Number(job.cursor || 0), totalItems);
+  const startedAtMs = job.startedAt ? new Date(job.startedAt).getTime() : 0;
+  const elapsedMinutes = startedAtMs ? Math.max(0, (Date.now() - startedAtMs) / 60000) : 0;
+  const itemsPerMinute = elapsedMinutes > 0 ? Math.round((processedItems / elapsedMinutes) * 10) / 10 : 0;
+  const estimatedMinutesRemaining = itemsPerMinute > 0
+    ? Math.ceil(Math.max(0, totalItems - processedItems) / itemsPerMinute)
+    : 0;
   return {
     status: job.status || "queued",
     totalItems,
     processedItems,
     remainingItems: Math.max(0, totalItems - processedItems),
+    itemsPerMinute,
+    estimatedMinutesRemaining,
     updatedRulesTotal: Number(job.updatedRulesTotal || 0),
     skippedItemsTotal: Number(job.skippedItemsTotal || 0),
     errorsTotal: Array.isArray(job.errors) ? job.errors.length : 0,
@@ -542,6 +552,7 @@ async function processTinySyncJobBatch() {
   const allItems = job.items;
   const currentCursor = Math.max(0, Math.min(Number(job.cursor || 0), allItems.length));
   const batchItems = allItems.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
+  const startedAtMs = Date.now();
   const tinyBySku = new Map();
   const batchErrors = [];
   const batchNotFound = [];
@@ -550,8 +561,12 @@ async function processTinySyncJobBatch() {
   let processedItems = 0;
 
   for (const item of batchItems) {
+    if (processedItems > 0 && Date.now() - startedAtMs >= TINY_SYNC_MAX_RUNTIME_MS) {
+      break;
+    }
+
     try {
-      await wait(650);
+      if (TINY_SYNC_ITEM_DELAY_MS > 0) await wait(TINY_SYNC_ITEM_DELAY_MS);
       const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName: job.depositName });
       const sku = normalizeSku(stockData?.sku);
       if (!sku || !bySku.has(sku)) {
