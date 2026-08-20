@@ -27,12 +27,12 @@ import {
   registerLocationBusinessRule,
   updateCustomer
 } from "./nuvemshop.js";
-import { findTinyPriceList, getTinyStatus, getTinyWholesaleBySku } from "./tiny.js";
+import { findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists } from "./tiny.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-admin-security-v4";
+const APP_VERSION = "2026-08-20-tiny-price-lists-v1";
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -620,11 +620,11 @@ async function handleApi(req, res) {
         });
       }
 
-      const priceListName = process.env.TINY_PRICE_LIST_NAME || "Atacado";
+      const priceListKeyword = process.env.TINY_PRICE_LIST_KEYWORD || process.env.TINY_PRICE_LIST_NAME || "Atacado";
       const depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado";
-      const priceList = await findTinyPriceList(priceListName);
-      if (!priceList) {
-        return sendJson(req, res, 400, { error: `Lista de preco "${priceListName}" nao encontrada no Tiny.` });
+      const priceLists = await findTinyPriceLists({ keyword: priceListKeyword });
+      if (!priceLists.length) {
+        return sendJson(req, res, 400, { error: `Nenhuma lista de preco contendo "${priceListKeyword}" foi encontrada no Tiny.` });
       }
 
       const bySku = new Map();
@@ -640,10 +640,9 @@ async function handleApi(req, res) {
 
       for (const sku of bySku.keys()) {
         try {
-          const tinyProduct = await getTinyWholesaleBySku({
+          const tinyProduct = await getTinyWholesaleBySkuFromPriceLists({
             sku,
-            priceList,
-            priceListName,
+            priceLists,
             depositName
           });
           tinyBySku.set(normalizeSku(tinyProduct.sku), tinyProduct);
@@ -681,6 +680,12 @@ async function handleApi(req, res) {
 
       return sendJson(req, res, 200, {
         ok: true,
+        priceListKeyword,
+        priceLists: priceLists.map((list) => ({
+          id: String(list.id || ""),
+          name: String(list.descricao || ""),
+          adjustmentPercent: Number(list.acrescimo_desconto || 0)
+        })),
         checkedSkus: bySku.size,
         updatedSkus: tinyBySku.size,
         updatedRules,

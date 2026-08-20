@@ -73,6 +73,44 @@ export async function findTinyPriceList(name = process.env.TINY_PRICE_LIST_NAME 
   return exact || lists[0] || null;
 }
 
+export async function findTinyPriceLists({
+  keyword = process.env.TINY_PRICE_LIST_KEYWORD || process.env.TINY_PRICE_LIST_NAME || "Atacado",
+  exactNames = process.env.TINY_PRICE_LIST_NAMES || ""
+} = {}) {
+  const names = exactNames
+    .split(",")
+    .map((name) => normalizeName(name))
+    .filter(Boolean);
+  const target = normalizeName(keyword);
+  const search = names[0] || keyword || "Atacado";
+  const matches = [];
+  const seen = new Set();
+
+  for (let page = 1; page <= 20; page += 1) {
+    const retorno = await tinyRequest("listas.precos.pesquisa.php", { pesquisa: search, pagina: page });
+    const lists = unwrapList(retorno.registros, "registro");
+    if (!lists.length) break;
+
+    lists.forEach((item) => {
+      const id = clean(item.id);
+      const normalized = normalizeName(item.descricao);
+      const exactMatch = names.length > 0 ? names.includes(normalized) : false;
+      const keywordMatch = names.length === 0 && normalized.includes(target);
+
+      if ((exactMatch || keywordMatch) && id && !seen.has(id)) {
+        seen.add(id);
+        matches.push(item);
+      }
+    });
+
+    const totalPages = Number(retorno.numero_paginas || retorno.total_paginas || 0);
+    if (totalPages && page >= totalPages) break;
+    if (!totalPages && lists.length < 100) break;
+  }
+
+  return matches;
+}
+
 export async function findTinyProductBySku(sku) {
   const normalizedSku = clean(sku);
   if (!normalizedSku) throw new Error("SKU nao informado para consulta no Tiny.");
@@ -172,17 +210,74 @@ export async function getTinyWholesaleBySku({
   };
 }
 
+export async function getTinyWholesaleBySkuFromPriceLists({
+  sku,
+  priceLists,
+  depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado"
+}) {
+  const lists = Array.isArray(priceLists) ? priceLists : [];
+  if (!lists.length) {
+    throw new Error("Nenhuma lista de preco de atacado encontrada no Tiny.");
+  }
+
+  const product = await findTinyProductBySku(sku);
+  if (!product) {
+    throw new Error(`Produto com SKU "${sku}" nao encontrado no Tiny.`);
+  }
+
+  const [stockData, ...prices] = await Promise.all([
+    getTinyStockByDeposit({ productId: product.id, depositName }),
+    ...lists.map((priceList) => getTinyWholesalePrice({ productId: product.id, priceListId: priceList.id }))
+  ]);
+  const matchedIndex = prices.findIndex((price) => Number(price || 0) > 0);
+  if (matchedIndex < 0) {
+    throw new Error(`Preco de atacado para SKU "${sku}" nao encontrado nas listas de atacado do Tiny.`);
+  }
+
+  const resolvedPriceList = lists[matchedIndex];
+  const price = prices[matchedIndex];
+
+  return {
+    sku: clean(product.codigo || sku),
+    productId: String(product.id || ""),
+    productName: clean(product.nome),
+    priceList: {
+      id: String(resolvedPriceList.id || ""),
+      name: clean(resolvedPriceList.descricao),
+      adjustmentPercent: Number(resolvedPriceList.acrescimo_desconto || 0)
+    },
+    wholesalePrice: Number(price || 0),
+    wholesaleStock: Number(stockData?.stock || 0),
+    stockDeposit: stockData?.deposit
+      ? {
+          name: clean(stockData.deposit.nome),
+          stock: Number(stockData.deposit.saldo || 0),
+          ignored: clean(stockData.deposit.desconsiderar)
+        }
+      : null,
+    availableDeposits: stockData?.deposits?.map((deposit) => ({
+      name: clean(deposit.nome),
+      stock: Number(deposit.saldo || 0),
+      ignored: clean(deposit.desconsiderar)
+    })) || []
+  };
+}
+
 export async function getTinyStatus() {
   const sku = clean(process.env.TINY_TEST_SKU || "");
   const priceListName = clean(process.env.TINY_PRICE_LIST_NAME || "Atacado");
+  const priceListKeyword = clean(process.env.TINY_PRICE_LIST_KEYWORD || priceListName);
   const depositName = clean(process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado");
   const priceList = await findTinyPriceList(priceListName);
+  const priceLists = await findTinyPriceLists({ keyword: priceListKeyword });
 
   return {
     configured: true,
     priceListName,
+    priceListKeyword,
     depositName,
     testSku: sku,
-    priceList
+    priceList,
+    priceLists
   };
 }

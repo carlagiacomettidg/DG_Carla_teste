@@ -291,7 +291,7 @@ function App() {
       const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
       setRules(result.rules);
       setNotice(
-        `Tiny sincronizado: ${result.updatedRules} variações atualizadas em ${result.checkedSkus} SKUs conferidos. ${result.notFound?.length || 0} SKUs não encontrados no Tiny.`
+        `Tiny sincronizado: ${result.updatedRules} variações atualizadas em ${result.checkedSkus} SKUs conferidos usando ${result.priceLists?.length || 0} listas de atacado. ${result.notFound?.length || 0} SKUs não encontrados no Tiny.`
       );
     } catch (error) {
       setNotice(error.message || "Não foi possível sincronizar o Tiny.");

@@ -508,3 +508,33 @@ Corrigido e em validacao no admin incorporado.
 **Versao**
 
 `2026-08-20-admin-security-v4`
+
+## 2026-08-20 - Tiny tinha varias listas de preco de atacado por categoria
+
+**Erro**
+
+A sincronizacao do Tiny buscava apenas uma lista de preco chamada `Atacado`, mas a conta real usa varias listas por categoria, como `ATACADO BERMUDA VENUS`, `ATACADO BLUSAS UV VENUS`, `ATACADO CAMISAS VENUS` e outras.
+
+**Onde apareceu**
+
+- Painel do Tiny/Olist em `Listas de precos`.
+- Botao `Sincronizar Tiny` no app da Nuvemshop.
+
+**Motivo**
+
+O app usava uma lista unica encontrada por `TINY_PRICE_LIST_NAME`. Quando o Tiny passou a separar os precos por categoria, varios SKUs poderiam estar em listas diferentes. Com uma lista unica, o app podia ignorar precos de atacado existentes em outras listas.
+
+**Como corrigimos**
+
+- Criamos busca de multiplas listas por palavra-chave.
+- A variavel principal passa a ser `TINY_PRICE_LIST_KEYWORD=ATACADO`.
+- Na sincronizacao em massa, o app localiza todas as listas cujo nome contenha `ATACADO` e testa o SKU em cada uma ate encontrar o preco de atacado.
+- O app registra em cada regra qual lista foi usada (`tinyPriceListId` e `tinyPriceListName`).
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-price-lists-v1`
