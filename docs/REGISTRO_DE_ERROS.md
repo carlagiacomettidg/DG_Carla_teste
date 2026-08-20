@@ -477,3 +477,34 @@ Corrigido e em validacao no admin incorporado.
 **Versao**
 
 `2026-08-20-admin-security-v3`
+
+## 2026-08-20 - Nexo quebra no navegador com global is not defined
+
+**Erro**
+
+```txt
+Falha ao conectar Nexo ReferenceError: global is not defined
+```
+
+**Onde apareceu**
+
+- Console do Chrome dentro do admin da Nuvemshop.
+- Arquivos gerados `app.js` e `chunk-*.js` ao carregar o pacote `@tiendanube/nexo`.
+
+**Motivo**
+
+O pacote `@tiendanube/nexo` traz um trecho empacotado em formato que espera a variavel global `global`, comum em Node/CommonJS. No navegador essa variavel nao existe por padrao, entao o chunk do Nexo quebrava antes de completar o handshake com a Nuvemshop.
+
+**Como corrigimos**
+
+- Adicionamos `define: { global: "globalThis" }` no `vite.config.js`.
+- Adicionamos um fallback no inicio do painel: `window.global = window`.
+- Mantivemos o carregamento do Nexo depois desse fallback.
+
+**Status**
+
+Corrigido e em validacao no admin incorporado.
+
+**Versao**
+
+`2026-08-20-admin-security-v4`

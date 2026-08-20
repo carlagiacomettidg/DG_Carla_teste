@@ -2,6 +2,10 @@ import React, { Component, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Database, Download, FileUp, MapPin, Package, RefreshCw, Save, Settings, Upload, Users } from "lucide-react";
 
+if (typeof window !== "undefined" && !window.global) {
+  window.global = window;
+}
+
 const isEmbedded = window.self !== window.top;
 let getAdminSessionToken = null;
 
