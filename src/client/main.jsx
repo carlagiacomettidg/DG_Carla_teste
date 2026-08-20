@@ -311,14 +311,14 @@ function App() {
 
         if (result.stoppedByRateLimit) {
           setNotice(
-            `O Tiny bloqueou temporariamente a API por excesso de acessos. Já atualizamos ${totalUpdatedRules} variações nesta rodada. Aguarde alguns minutos e clique em Sincronizar Tiny novamente para continuar.`
+            `O Tiny bloqueou temporariamente a API por excesso de acessos. Já atualizamos ${totalUpdatedRules} variações nesta rodada. Aguarde alguns minutos e clique em Sincronizar Tiny novamente para continuar do ponto em que parou.`
           );
           return;
         }
 
         const remaining = Number(result.remainingSkus || 0);
         setNotice(
-          `Sincronizando Tiny automaticamente: lote ${batch} concluído (${result.batchSize} SKUs conferidos). Faltam ${remaining} SKUs.`
+          `Sincronizando Tiny automaticamente: lote ${batch} concluído (${result.batchSize} itens de preço conferidos). Faltam ${remaining} itens de preço.`
         );
 
         if (remaining <= 0) break;
@@ -326,7 +326,7 @@ function App() {
       }
 
       setNotice(
-        `Tiny sincronizado: ${totalUpdatedRules} variações atualizadas em ${latestResult?.checkedSkus || 0} SKUs conferidos usando ${latestResult?.priceLists?.length || 0} listas de atacado. ${totalNotFound} SKUs não encontrados no Tiny${totalErrors ? ` e ${totalErrors} avisos retornados.` : "."}`
+        `Tiny sincronizado: ${totalUpdatedRules} variações atualizadas a partir de ${latestResult?.sourceItems || 0} itens de preço do Tiny usando ${latestResult?.priceLists?.length || 0} listas de atacado. ${totalNotFound} itens não encontrados${totalErrors ? ` e ${totalErrors} avisos retornados.` : "."}`
       );
     } catch (error) {
       setNotice(error.message || "Não foi possível sincronizar o Tiny.");

@@ -600,3 +600,34 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-auto-batch-v1`
+
+## 2026-08-20 - Sincronizacao do Tiny ainda bloqueava mesmo com lote automatico
+
+**Erro**
+
+Mesmo com sincronizacao automatica em lotes, o Tiny ainda podia bloquear logo no inicio com `API Bloqueada - Excedido o numero de acessos`.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Botao `Sincronizar Tiny`.
+
+**Motivo**
+
+O lote automatico melhorou a experiencia, mas a consulta ainda era cara: para cada SKU da Nuvemshop, o app procurava o produto no Tiny, testava as listas de preco de atacado e depois buscava estoque. Em contas com muitos SKUs e varias listas `ATACADO`, isso gerava muitas chamadas rapidamente.
+
+**Como corrigimos**
+
+- Invertemos o fluxo da sincronizacao.
+- O app agora busca as excecoes/itens das listas de preco de atacado no Tiny.
+- Depois cruza esses itens com os SKUs existentes na Nuvemshop.
+- Assim, o app trabalha em cima dos produtos que realmente possuem preco nas listas de atacado, em vez de consultar todos os SKUs cegamente.
+- A sincronizacao continua automatica por lotes no front, mas com muito menos chamadas ao Tiny.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-bulk-index-v1`

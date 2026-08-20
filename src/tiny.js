@@ -148,6 +148,57 @@ export async function getTinyWholesalePrice({ productId, priceListId }) {
   return promotional > 0 ? promotional : price;
 }
 
+export async function getTinyPriceListExceptions(priceList) {
+  if (!priceList?.id) return [];
+
+  const records = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const retorno = await tinyRequest("listas.precos.excecoes.php", {
+      idListaPreco: priceList.id,
+      pagina: page
+    });
+    const pageRecords = unwrapList(retorno.registros, "registro");
+    records.push(...pageRecords);
+
+    const totalPages = Number(retorno.numero_paginas || retorno.total_paginas || 0);
+    if (totalPages && page >= totalPages) break;
+    if (!totalPages || !pageRecords.length) break;
+  }
+
+  return records;
+}
+
+export async function buildTinyWholesalePriceIndex(priceLists) {
+  const items = [];
+  const seen = new Set();
+
+  for (const priceList of priceLists || []) {
+    const records = await getTinyPriceListExceptions(priceList);
+    records.forEach((record) => {
+      const productId = clean(record.id_produto);
+      if (!productId || seen.has(productId)) return;
+
+      const promotional = Number(record.preco_promocional || 0);
+      const price = Number(record.preco || 0);
+      const wholesalePrice = promotional > 0 ? promotional : price;
+      if (wholesalePrice <= 0) return;
+
+      seen.add(productId);
+      items.push({
+        productId,
+        wholesalePrice,
+        priceList: {
+          id: String(priceList.id || ""),
+          name: clean(priceList.descricao),
+          adjustmentPercent: Number(priceList.acrescimo_desconto || 0)
+        }
+      });
+    });
+  }
+
+  return items;
+}
+
 export async function getTinyStockByDeposit({
   productId,
   depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado"
@@ -162,6 +213,9 @@ export async function getTinyStockByDeposit({
   const stock = deposit ? Number(deposit.saldo || 0) : Number(product.saldo || 0);
 
   return {
+    sku: clean(product.codigo),
+    productName: clean(product.nome),
+    productId: String(productId || ""),
     totalStock: Number(product.saldo || 0),
     stock,
     deposit,

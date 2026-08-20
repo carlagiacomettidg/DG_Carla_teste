@@ -27,12 +27,12 @@ import {
   registerLocationBusinessRule,
   updateCustomer
 } from "./nuvemshop.js";
-import { findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists } from "./tiny.js";
+import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyStockByDeposit, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists } from "./tiny.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-tiny-auto-batch-v1";
+const APP_VERSION = "2026-08-20-tiny-bulk-index-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.TINY_SYNC_BATCH_SIZE || 25)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
@@ -636,32 +636,64 @@ async function handleApi(req, res) {
       });
 
       const allSkus = Array.from(bySku.keys());
-      const currentCursor = Math.max(0, Math.min(Number(db.tinySyncCursor || 0), allSkus.length));
-      const batchSkus = allSkus.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
-      const nextCursor = currentCursor + batchSkus.length >= allSkus.length ? 0 : currentCursor + batchSkus.length;
+      const existingJob = db.tinySyncJob || {};
+      const jobMatches =
+        existingJob.priceListKeyword === priceListKeyword &&
+        existingJob.depositName === depositName &&
+        Array.isArray(existingJob.items) &&
+        Number(existingJob.cursor || 0) < existingJob.items.length;
+      const syncJob = jobMatches
+        ? existingJob
+        : {
+            priceListKeyword,
+            depositName,
+            createdAt: new Date().toISOString(),
+            cursor: 0,
+            items: await buildTinyWholesalePriceIndex(priceLists)
+          };
+      const allItems = Array.isArray(syncJob.items) ? syncJob.items : [];
+      const currentCursor = Math.max(0, Math.min(Number(syncJob.cursor || 0), allItems.length));
+      const batchItems = allItems.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
+      const nextCursor = currentCursor + batchItems.length >= allItems.length ? 0 : currentCursor + batchItems.length;
       const tinyBySku = new Map();
       const notFound = [];
       const errors = [];
       let stoppedByRateLimit = false;
+      let skippedItems = 0;
 
-      for (const sku of batchSkus) {
+      for (const item of batchItems) {
         try {
-          const tinyProduct = await getTinyWholesaleBySkuFromPriceLists({
+          const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName });
+          const sku = normalizeSku(stockData?.sku);
+          if (!sku || !bySku.has(sku)) {
+            skippedItems += 1;
+            continue;
+          }
+          tinyBySku.set(sku, {
             sku,
-            priceLists,
-            depositName
+            productId: String(item.productId || ""),
+            productName: stockData?.productName || "",
+            priceList: item.priceList,
+            wholesalePrice: Number(item.wholesalePrice || 0),
+            wholesaleStock: Number(stockData?.stock || 0),
+            stockDeposit: stockData?.deposit
+              ? {
+                  name: cleanString(stockData.deposit.nome),
+                  stock: Number(stockData.deposit.saldo || 0),
+                  ignored: cleanString(stockData.deposit.desconsiderar)
+                }
+              : null
           });
-          tinyBySku.set(normalizeSku(tinyProduct.sku), tinyProduct);
         } catch (error) {
           const message = error.message || "";
           if (error.code === "TINY_RATE_LIMIT" || message.toLowerCase().includes("api bloqueada")) {
             stoppedByRateLimit = true;
-            errors.push({ sku, error: message });
+            errors.push({ productId: item.productId, error: message });
             break;
           } else if (message.includes("nao encontrado no Tiny")) {
-            notFound.push(sku);
+            notFound.push(item.productId);
           } else {
-            errors.push({ sku, error: message });
+            errors.push({ productId: item.productId, error: message });
           }
         }
       }
@@ -683,7 +715,13 @@ async function handleApi(req, res) {
             enabled: rule.enabled !== false
           };
         });
-        state.tinySyncCursor = stoppedByRateLimit ? currentCursor : nextCursor;
+        state.tinySyncJob = stoppedByRateLimit || nextCursor > 0
+          ? {
+              ...syncJob,
+              cursor: stoppedByRateLimit ? currentCursor : nextCursor
+            }
+          : null;
+        state.tinySyncCursor = 0;
         return state;
       });
 
@@ -698,13 +736,15 @@ async function handleApi(req, res) {
           adjustmentPercent: Number(list.acrescimo_desconto || 0)
         })),
         checkedSkus: allSkus.length,
+        sourceItems: allItems.length,
         batchStart: currentCursor + 1,
-        batchSize: batchSkus.length,
+        batchSize: batchItems.length,
         nextCursor: stoppedByRateLimit ? currentCursor : nextCursor,
-        remainingSkus: stoppedByRateLimit ? allSkus.length - currentCursor : (nextCursor === 0 ? 0 : allSkus.length - nextCursor),
+        remainingSkus: stoppedByRateLimit ? allItems.length - currentCursor : (nextCursor === 0 ? 0 : allItems.length - nextCursor),
         stoppedByRateLimit,
         updatedSkus: tinyBySku.size,
         updatedRules,
+        skippedItems,
         notFound,
         errors,
         rules: next.rules
