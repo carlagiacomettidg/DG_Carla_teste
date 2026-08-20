@@ -631,3 +631,33 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-bulk-index-v1`
+
+## 2026-08-20 - Tiny continuava retornando bloqueio apos otimizar por lista
+
+**Erro**
+
+Mesmo depois de inverter a sincronizacao para buscar os itens das listas de preco primeiro, o painel ainda mostrava `O Tiny bloqueou temporariamente a API por excesso de acessos` com `0 variacoes` atualizadas.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Botao `Sincronizar Tiny`.
+
+**Motivo**
+
+O token do Tiny pode ficar em cooldown por alguns minutos depois de varias tentativas seguidas. Alem disso, mesmo com a busca por lista, o app ainda consultava estoque em sequencia para os itens do lote. Se o token ja estava bloqueado, a primeira consulta do novo lote ja falhava.
+
+**Como corrigimos**
+
+- Reduzimos o lote padrao para `5` itens por chamada.
+- Adicionamos uma pequena pausa entre consultas de estoque no servidor.
+- O front agora aguarda 2 minutos e tenta continuar automaticamente quando o Tiny retorna bloqueio.
+- O app continua salvando o ponto da sincronizacao para retomar de onde parou.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-20-tiny-throttled-sync-v1`

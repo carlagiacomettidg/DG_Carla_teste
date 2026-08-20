@@ -300,6 +300,7 @@ function App() {
       let totalErrors = 0;
       let latestResult = null;
       const maxBatches = 120;
+      let rateLimitRetries = 0;
 
       for (let batch = 1; batch <= maxBatches; batch += 1) {
         const result = await api("/api/tiny/sync-rules", { method: "POST", body: JSON.stringify({}) });
@@ -310,19 +311,30 @@ function App() {
         setRules(result.rules);
 
         if (result.stoppedByRateLimit) {
+          rateLimitRetries += 1;
+          if (rateLimitRetries <= 3) {
+            setNotice(
+              `O Tiny bloqueou temporariamente a API. Já atualizamos ${totalUpdatedRules} variações. Vou aguardar 2 minutos e continuar automaticamente do ponto em que parou.`
+            );
+            await wait(120000);
+            batch -= 1;
+            continue;
+          }
+
           setNotice(
-            `O Tiny bloqueou temporariamente a API por excesso de acessos. Já atualizamos ${totalUpdatedRules} variações nesta rodada. Aguarde alguns minutos e clique em Sincronizar Tiny novamente para continuar do ponto em que parou.`
+            `O Tiny continuou bloqueando a API após algumas tentativas. Já atualizamos ${totalUpdatedRules} variações nesta rodada. Aguarde alguns minutos e clique em Sincronizar Tiny para continuar do ponto em que parou.`
           );
           return;
         }
 
+        rateLimitRetries = 0;
         const remaining = Number(result.remainingSkus || 0);
         setNotice(
           `Sincronizando Tiny automaticamente: lote ${batch} concluído (${result.batchSize} itens de preço conferidos). Faltam ${remaining} itens de preço.`
         );
 
         if (remaining <= 0) break;
-        await wait(1800);
+        await wait(5000);
       }
 
       setNotice(

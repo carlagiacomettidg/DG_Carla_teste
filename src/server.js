@@ -32,8 +32,8 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-20-tiny-bulk-index-v1";
-const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.TINY_SYNC_BATCH_SIZE || 25)));
+const APP_VERSION = "2026-08-20-tiny-throttled-sync-v1";
+const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(25, Number(process.env.TINY_SYNC_BATCH_SIZE || 5)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -74,6 +74,12 @@ function corsHeaders(req) {
 function sendJson(req, res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(req) });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function sendText(req, res, status, text) {
@@ -663,6 +669,7 @@ async function handleApi(req, res) {
 
       for (const item of batchItems) {
         try {
+          await wait(650);
           const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName });
           const sku = normalizeSku(stockData?.sku);
           if (!sku || !bySku.has(sku)) {
