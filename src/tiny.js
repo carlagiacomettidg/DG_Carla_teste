@@ -12,6 +12,17 @@ function normalizeName(value) {
     .toLowerCase();
 }
 
+function tinyNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const raw = clean(value);
+  if (!raw) return 0;
+  const normalized = raw.includes(",")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+}
+
 function getToken() {
   const token = clean(process.env.TINY_API_TOKEN);
   if (!token) {
@@ -109,7 +120,7 @@ export async function findTinyPriceLists({
       }
     });
 
-    const totalPages = Number(retorno.numero_paginas || retorno.total_paginas || 0);
+    const totalPages = tinyNumber(retorno.numero_paginas || retorno.total_paginas || 0);
     if (totalPages && page >= totalPages) break;
     if (!totalPages && lists.length < 100) break;
   }
@@ -143,8 +154,8 @@ export async function getTinyWholesalePrice({ productId, priceListId }) {
   const record = records.find((item) => String(item.id_produto || "") === String(productId)) || records[0];
   if (!record) return null;
 
-  const promotional = Number(record.preco_promocional || 0);
-  const price = Number(record.preco || 0);
+  const promotional = tinyNumber(record.preco_promocional || 0);
+  const price = tinyNumber(record.preco || 0);
   return promotional > 0 ? promotional : price;
 }
 
@@ -160,7 +171,7 @@ export async function getTinyPriceListExceptions(priceList) {
     const pageRecords = unwrapList(retorno.registros, "registro");
     records.push(...pageRecords);
 
-    const totalPages = Number(retorno.numero_paginas || retorno.total_paginas || 0);
+    const totalPages = tinyNumber(retorno.numero_paginas || retorno.total_paginas || 0);
     if (totalPages && page >= totalPages) break;
     if (!totalPages || !pageRecords.length) break;
   }
@@ -178,8 +189,8 @@ export async function buildTinyWholesalePriceIndex(priceLists) {
       const productId = clean(record.id_produto);
       if (!productId || seen.has(productId)) return;
 
-      const promotional = Number(record.preco_promocional || 0);
-      const price = Number(record.preco || 0);
+      const promotional = tinyNumber(record.preco_promocional || 0);
+      const price = tinyNumber(record.preco || 0);
       const wholesalePrice = promotional > 0 ? promotional : price;
       if (wholesalePrice <= 0) return;
 
@@ -190,7 +201,7 @@ export async function buildTinyWholesalePriceIndex(priceLists) {
         priceList: {
           id: String(priceList.id || ""),
           name: clean(priceList.descricao),
-          adjustmentPercent: Number(priceList.acrescimo_desconto || 0)
+          adjustmentPercent: tinyNumber(priceList.acrescimo_desconto || 0)
         }
       });
     });
@@ -209,17 +220,25 @@ export async function getTinyStockByDeposit({
   const product = retorno.produto || {};
   const deposits = unwrapList(product.depositos, "deposito");
   const target = normalizeName(depositName);
-  const deposit = deposits.find((item) => normalizeName(item.nome) === target) || null;
-  const stock = deposit ? Number(deposit.saldo || 0) : Number(product.saldo || 0);
+  const exactDeposit = deposits.find((item) => normalizeName(item.nome) === target);
+  const partialDeposit = deposits.find((item) => {
+    const name = normalizeName(item.nome);
+    return name && target && (name.includes(target) || target.includes(name));
+  });
+  const deposit = exactDeposit || partialDeposit || null;
+  const stock = deposit ? tinyNumber(deposit.saldo || 0) : tinyNumber(product.saldo || 0);
 
   return {
     sku: clean(product.codigo),
     productName: clean(product.nome),
     productId: String(productId || ""),
-    totalStock: Number(product.saldo || 0),
+    totalStock: tinyNumber(product.saldo || 0),
     stock,
     deposit,
-    deposits
+    deposits: deposits.map((item) => ({
+      ...item,
+      parsedSaldo: tinyNumber(item.saldo || 0)
+    }))
   };
 }
 
@@ -251,20 +270,20 @@ export async function getTinyWholesaleBySku({
     priceList: {
       id: String(resolvedPriceList.id || ""),
       name: clean(resolvedPriceList.descricao),
-      adjustmentPercent: Number(resolvedPriceList.acrescimo_desconto || 0)
+      adjustmentPercent: tinyNumber(resolvedPriceList.acrescimo_desconto || 0)
     },
-    wholesalePrice: Number(price || product.preco || 0),
-    wholesaleStock: Number(stockData?.stock || 0),
+    wholesalePrice: tinyNumber(price || product.preco || 0),
+    wholesaleStock: tinyNumber(stockData?.stock || 0),
     stockDeposit: stockData?.deposit
       ? {
           name: clean(stockData.deposit.nome),
-          stock: Number(stockData.deposit.saldo || 0),
+          stock: tinyNumber(stockData.deposit.saldo || 0),
           ignored: clean(stockData.deposit.desconsiderar)
         }
       : null,
     availableDeposits: stockData?.deposits?.map((deposit) => ({
       name: clean(deposit.nome),
-      stock: Number(deposit.saldo || 0),
+      stock: tinyNumber(deposit.saldo || deposit.parsedSaldo || 0),
       ignored: clean(deposit.desconsiderar)
     })) || []
   };
@@ -290,7 +309,7 @@ export async function getTinyWholesaleBySkuFromPriceLists({
 
   for (const priceList of lists) {
     const listPrice = await getTinyWholesalePrice({ productId: product.id, priceListId: priceList.id });
-    if (Number(listPrice || 0) > 0) {
+    if (tinyNumber(listPrice || 0) > 0) {
       resolvedPriceList = priceList;
       price = listPrice;
       break;
@@ -310,20 +329,20 @@ export async function getTinyWholesaleBySkuFromPriceLists({
     priceList: {
       id: String(resolvedPriceList.id || ""),
       name: clean(resolvedPriceList.descricao),
-      adjustmentPercent: Number(resolvedPriceList.acrescimo_desconto || 0)
+      adjustmentPercent: tinyNumber(resolvedPriceList.acrescimo_desconto || 0)
     },
-    wholesalePrice: Number(price || 0),
-    wholesaleStock: Number(stockData?.stock || 0),
+    wholesalePrice: tinyNumber(price || 0),
+    wholesaleStock: tinyNumber(stockData?.stock || 0),
     stockDeposit: stockData?.deposit
       ? {
           name: clean(stockData.deposit.nome),
-          stock: Number(stockData.deposit.saldo || 0),
+          stock: tinyNumber(stockData.deposit.saldo || 0),
           ignored: clean(stockData.deposit.desconsiderar)
         }
       : null,
     availableDeposits: stockData?.deposits?.map((deposit) => ({
       name: clean(deposit.nome),
-      stock: Number(deposit.saldo || 0),
+      stock: tinyNumber(deposit.saldo || deposit.parsedSaldo || 0),
       ignored: clean(deposit.desconsiderar)
     })) || []
   };

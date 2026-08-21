@@ -728,3 +728,34 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-20-tiny-faster-background-sync-v1`
+
+## 2026-08-21 - Estoque do Tiny podia aparecer como zero
+
+**Erro**
+
+O preco de atacado vinha do Tiny, mas o estoque de atacado podia aparecer como `0` no app mesmo quando o deposito do Tiny tinha saldo.
+
+**Onde apareceu**
+
+- Painel incorporado da Nuvemshop.
+- Sincronizacao Tiny.
+- Coluna `Estoque atacado`.
+
+**Motivo**
+
+O Tiny pode retornar numeros no formato brasileiro, por exemplo `10,00`. O codigo usava `Number(...)`, e esse formato vira `NaN` em JavaScript. Na pratica, isso podia cair como zero na regra de atacado. Alem disso, o deposito era procurado por nome exato; se a variavel estivesse como `Atacado` e o Tiny estivesse como `Atacado - centro`, o app podia nao selecionar o deposito correto.
+
+**Como corrigimos**
+
+- Criamos um parser para numeros do Tiny que aceita `10`, `10.00`, `10,00` e `1.234,56`.
+- A leitura de preco, estoque total e estoque por deposito passou a usar esse parser.
+- A busca do deposito agora aceita nome exato ou nome parcial, como `Atacado` para `Atacado - centro`.
+- A fila de sincronizacao passou a salvar o estoque ja tratado, em vez de converter novamente o saldo bruto do deposito.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-21-tiny-stock-parse-v1`
