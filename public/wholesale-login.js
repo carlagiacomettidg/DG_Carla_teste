@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-28-storefront-account-email-v1";
+  const SCRIPT_VERSION = "2026-08-28-storefront-name-fallback-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,
@@ -451,11 +451,19 @@
       ".js-price-display",
       ".js-product-price",
       ".js-price",
+      ".product-price",
+      ".price-current",
+      ".current-price",
+      ".sale-price",
+      ".product-detail-price",
+      ".js-product-detail-price",
       ".price",
       "#price_display",
       "[id='price_display']",
       "[data-store='product-price']",
       "[data-store='product-price-current']",
+      "[data-store='price']",
+      "[data-component='price']",
       "[data-store='product-item-price']"
     ];
 

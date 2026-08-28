@@ -881,3 +881,33 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-28-auto-tiny-account-v1`
+
+## 2026-08-28 - Header da loja mostrava apenas primeiro nome do cliente
+
+**Erro**
+
+O cliente estava logado e aprovado como atacado, mas a vitrine ainda podia manter o preco de varejo quando o tema mostrava apenas `Ola, Carla!` e nao expunha e-mail/ID do cliente para scripts.
+
+**Onde apareceu**
+
+- Vitrine da loja.
+- Pagina do produto `Calca mol bebe`.
+- Cliente logado com saudacao no header.
+
+**Motivo**
+
+O fallback por nome havia sido bloqueado quando existia mais de um cliente atacado com o mesmo primeiro nome. Isso era seguro demais para o caso real, porque o script estava dentro de uma sessao logada da propria loja e o objetivo era apenas trocar a visualizacao do preco na vitrine.
+
+**Como corrigimos**
+
+- O endpoint publico passou a aceitar mais de um match por nome quando todos os matches encontrados sao clientes atacado.
+- O app escolhe um cliente atacado recente apenas para validar acesso e liberar as regras de preco na vitrine.
+- O script da vitrine recebeu mais seletores de preco para cobrir variacoes do tema.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-28-storefront-name-fallback-v1`

@@ -32,7 +32,7 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-28-auto-tiny-account-v1";
+const APP_VERSION = "2026-08-28-storefront-name-fallback-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
@@ -1002,14 +1002,11 @@ async function handleApi(req, res) {
           if (name === targetName || name.startsWith(`${targetName} `)) return true;
           return targetParts.length > 0 && targetParts.every((part) => name.includes(part));
         });
-        if (wholesaleMatches.length === 1) {
-          customer = wholesaleMatches[0];
-        } else if (wholesaleMatches.length > 1) {
-          return sendJson(req, res, 200, {
-            wholesale: false,
-            reason: "customer_name_ambiguous",
-            matches: wholesaleMatches.length
-          });
+        if (wholesaleMatches.length >= 1) {
+          customer = wholesaleMatches
+            .slice()
+            .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+          req.customerNameFallbackMatches = wholesaleMatches.length;
         }
       }
     } catch (error) {
@@ -1047,6 +1044,7 @@ async function handleApi(req, res) {
     return sendJson(req, res, 200, {
       wholesale: true,
       customer: mappedCustomer,
+      customerNameFallbackMatches: req.customerNameFallbackMatches || 0,
       settings: {
         minimumQuantity: Number(db.store.wholesaleMinimumQuantity || 0),
         minimumAmount: money(db.store.wholesaleMinimumAmount || 0),
