@@ -32,10 +32,11 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-28-storefront-account-email-v1";
+const APP_VERSION = "2026-08-28-auto-tiny-account-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
+const TINY_AUTO_SYNC_INTERVAL_MINUTES = Math.max(5, Math.min(1440, Number(process.env.TINY_AUTO_SYNC_INTERVAL_MINUTES || 15)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -474,6 +475,16 @@ function tinySyncStatus(job = null) {
     rateLimitedUntil: job.rateLimitedUntil || "",
     lastMessage: job.lastMessage || ""
   };
+}
+
+function shouldAutoStartTinySync(job = null) {
+  if (!job) return true;
+  if (["queued", "processing", "rate_limited"].includes(String(job.status || ""))) return false;
+  const finishedAtMs = job.finishedAt ? new Date(job.finishedAt).getTime() : 0;
+  const updatedAtMs = job.updatedAt ? new Date(job.updatedAt).getTime() : 0;
+  const lastRunMs = Math.max(finishedAtMs, updatedAtMs);
+  if (!lastRunMs) return true;
+  return Date.now() - lastRunMs >= TINY_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1000;
 }
 
 async function startTinySyncJob({ restart = false } = {}) {
@@ -936,6 +947,10 @@ async function handleApi(req, res) {
     }
 
     try {
+      const db = await readDb();
+      if (shouldAutoStartTinySync(db.tinySyncJob || null)) {
+        await startTinySyncJob({ restart: true });
+      }
       const result = await processTinySyncJobBatch();
       return sendJson(req, res, 200, { ok: true, ...result, rules: undefined });
     } catch (error) {

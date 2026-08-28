@@ -851,3 +851,33 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-28-storefront-account-email-v1`
+
+## 2026-08-28 - Cron do Tiny nao iniciava nova sincronizacao sozinho
+
+**Erro**
+
+A sincronizacao em segundo plano dependia de alguem clicar em `Sincronizar Tiny` para criar a fila. O endpoint de cron continuava uma fila existente, mas nao criava uma nova rodada automaticamente quando a fila estava parada ou concluida.
+
+**Onde apareceu**
+
+- Fluxo de sincronizacao Tiny para preco e estoque.
+- Necessidade da cliente manter preco/estoque atualizados sem clicar manualmente no painel.
+
+**Motivo**
+
+O endpoint `/api/cron/tiny-sync` chamava apenas o processamento do lote atual. Quando nao havia `tinySyncJob`, ou quando a ultima sincronizacao ja tinha terminado, ele retornava parado em vez de iniciar uma nova varredura.
+
+**Como corrigimos**
+
+- Criamos uma regra de auto-start para o cron.
+- Se nao houver fila ativa, ou se a ultima fila terminou ha mais tempo que `TINY_AUTO_SYNC_INTERVAL_MINUTES`, o cron cria uma nova sincronizacao automaticamente.
+- Mantivemos protecao para nao reiniciar enquanto uma fila estiver `queued`, `processing` ou `rate_limited`.
+- Adicionamos a variavel `TINY_AUTO_SYNC_INTERVAL_MINUTES`, com padrao de 15 minutos.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-28-auto-tiny-account-v1`
