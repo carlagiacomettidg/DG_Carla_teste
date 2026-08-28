@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-28-storefront-session-stock-v1";
+  const SCRIPT_VERSION = "2026-08-28-storefront-account-email-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,
@@ -86,6 +86,26 @@
     const bodyText = document.body.textContent.slice(0, 3000);
     const match = bodyText.match(/ol[áa],?\s*([^!\n\r]{2,80})/i);
     return match?.[1] ? match[1].replace(/\b(sair|minha conta|meus pedidos)\b/gi, "").trim() : "";
+  }
+
+  async function findCustomerEmailInAccountPages() {
+    const paths = ["/account/", "/account/addresses/", "/account/profile/"];
+    for (const path of paths) {
+      try {
+        const response = await fetch(path, { credentials: "same-origin" });
+        if (!response.ok) continue;
+        const html = await response.text();
+        const match = html.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+        if (match?.[0]) {
+          const email = match[0].toLowerCase();
+          saveWholesaleEmail(email);
+          return email;
+        }
+      } catch {
+        // Some themes can block account subpages; other detection paths still apply.
+      }
+    }
+    return "";
   }
 
   function formatCnpj(value) {
@@ -480,7 +500,14 @@
   async function initStorefrontWholesalePrices(attempt = 0) {
     if (window.DG_WHOLESALE_DEBUG?.contextLoaded && window.DG_WHOLESALE_DEBUG?.applied > 0) return;
     window.DG_WHOLESALE_DEBUG.attempts = attempt + 1;
-    const customer = getCurrentStorefrontCustomer();
+    let customer = getCurrentStorefrontCustomer();
+    if (!customer?.email && !customer?.id) {
+      const accountEmail = await findCustomerEmailInAccountPages();
+      if (accountEmail) {
+        customer = { id: "", email: accountEmail, source: "account_page_email" };
+        window.DG_WHOLESALE_DEBUG.accountPageEmailUsed = true;
+      }
+    }
     if (!customer?.email && !customer?.id && !customer?.name) {
       window.DG_WHOLESALE_DEBUG.customerFound = false;
       window.DG_WHOLESALE_DEBUG.lastReason = "customer_not_found_in_storefront";

@@ -822,3 +822,32 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-28-storefront-session-stock-v1`
+
+## 2026-08-28 - Nome da sessao da vitrine era ambiguo
+
+**Erro**
+
+O fallback por saudacao da vitrine conseguia ler `Ola, Carla!`, mas havia mais de um cliente atacado aprovado com nome compatível. Por seguranca, o backend retornou `customer_name_ambiguous` e nao liberou o preco de atacado.
+
+**Onde apareceu**
+
+- Vitrine da loja, cliente logado.
+- Endpoint `/api/storefront-wholesale-context?customerName=Carla`.
+
+**Motivo**
+
+O header da loja mostrava apenas o primeiro nome, sem e-mail ou ID do cliente. Como existiam 2 clientes atacado compatíveis com `Carla`, nao dava para saber qual cliente estava logado usando apenas esse texto.
+
+**Como corrigimos**
+
+- O script da vitrine passou a tentar ler o e-mail diretamente nas paginas logadas da propria Nuvemshop, como `/account/`, `/account/addresses/` e `/account/profile/`.
+- Quando encontra o e-mail nessas paginas, salva no navegador e consulta o contexto atacado por e-mail, evitando depender do primeiro nome exibido no header.
+- O fallback por nome continua existindo, mas apenas como ultima alternativa e com bloqueio quando houver ambiguidade.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-28-storefront-account-email-v1`

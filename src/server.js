@@ -32,7 +32,7 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-28-storefront-session-stock-v1";
+const APP_VERSION = "2026-08-28-storefront-account-email-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
