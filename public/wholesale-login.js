@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-18-storefront-diagnostics-v1";
+  const SCRIPT_VERSION = "2026-08-28-storefront-price-apply-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,
@@ -25,6 +25,47 @@
     return String(value || "").replace(/\D/g, "");
   }
 
+  function normalizeText(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizePath(value) {
+    try {
+      const url = new URL(String(value || ""), window.location.origin);
+      return url.pathname.replace(/\/+$/, "");
+    } catch {
+      return String(value || "").split("?")[0].replace(/\/+$/, "");
+    }
+  }
+
+  function saveWholesaleEmail(email) {
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!cleanEmail) return;
+    try {
+      window.localStorage.setItem("DG_WHOLESALE_EMAIL", cleanEmail);
+      window.sessionStorage.setItem("DG_WHOLESALE_EMAIL", cleanEmail);
+    } catch {
+      // Storage can be blocked by the browser; the storefront still works when Nuvemshop exposes the customer.
+    }
+  }
+
+  function getStoredWholesaleEmail() {
+    try {
+      return (
+        window.sessionStorage.getItem("DG_WHOLESALE_EMAIL") ||
+        window.localStorage.getItem("DG_WHOLESALE_EMAIL") ||
+        ""
+      ).trim().toLowerCase();
+    } catch {
+      return "";
+    }
+  }
+
   function formatCnpj(value) {
     const digits = onlyDigits(value).slice(0, 14);
     return digits
@@ -43,6 +84,10 @@
 
   function isAccountPage() {
     return /\/account\/register\/?$/.test(window.location.pathname);
+  }
+
+  function isLoginPage() {
+    return /\/account\/login\/?$/.test(window.location.pathname);
   }
 
   function createField(label, name, type, placeholder, required) {
@@ -132,19 +177,30 @@
     ].filter(Boolean);
 
     for (const customer of candidates) {
-      const email = customer.email || customer.customer_email || customer.mail;
-      const id = customer.id || customer.customer_id;
+      const email = customer.email || customer.customer_email || customer.mail || customer.email_address;
+      const id = customer.id || customer.customer_id || customer.customerId;
       if (email || id) {
         return {
           id: id ? String(id) : "",
-          email: email ? String(email).toLowerCase() : ""
+          email: email ? String(email).toLowerCase() : "",
+          source: "storefront_customer"
         };
       }
     }
 
+    const globalEmail =
+      window.customer_email ||
+      window.customerEmail ||
+      window.currentCustomerEmail ||
+      window.LS?.customer_email ||
+      window.LS?.customerEmail;
+    if (globalEmail) {
+      return { id: "", email: String(globalEmail).toLowerCase(), source: "storefront_email" };
+    }
+
     const emailMeta = document.querySelector('meta[name="customer-email"], meta[property="customer:email"]');
     if (emailMeta?.content) {
-      return { id: "", email: String(emailMeta.content).toLowerCase() };
+      return { id: "", email: String(emailMeta.content).toLowerCase(), source: "meta_customer_email" };
     }
 
     const accountText = [
@@ -154,7 +210,34 @@
     ].find(Boolean);
     const dataEmail = accountText?.getAttribute?.("data-customer-email");
     if (dataEmail) {
-      return { id: "", email: String(dataEmail).toLowerCase() };
+      return { id: "", email: String(dataEmail).toLowerCase(), source: "data_customer_email" };
+    }
+
+    const loggedInSignals = [
+      'a[href*="/account/logout"]',
+      'form[action*="/account/logout"]',
+      ".js-customer-logout",
+      ".js-customer-name",
+      "[data-store='account-name']",
+      "[data-customer-id]"
+    ];
+    const hasLoggedInSignal = loggedInSignals.some((selector) => document.querySelector(selector));
+    const headerText = normalizeText(document.body.textContent.slice(0, 2500));
+    const loginTextVisible =
+      headerText.includes("login / cadastre-se") ||
+      headerText.includes("login/cadastre-se") ||
+      headerText.includes("iniciar sessao") ||
+      headerText.includes("criar uma conta");
+    const looksLoggedIn =
+      hasLoggedInSignal ||
+      (headerText.includes("minha conta") && !loginTextVisible);
+
+    window.DG_WHOLESALE_DEBUG.loggedInDetected = looksLoggedIn;
+
+    const storedEmail = getStoredWholesaleEmail();
+    if (storedEmail && (looksLoggedIn || !loginTextVisible)) {
+      window.DG_WHOLESALE_DEBUG.fallbackEmailUsed = true;
+      return { id: "", email: storedEmail, source: looksLoggedIn ? "stored_wholesale_email" : "stored_wholesale_email_no_public_customer" };
     }
 
     return null;
@@ -175,6 +258,100 @@
     return "";
   }
 
+  function addRuleToList(map, key, rule) {
+    if (!key) return;
+    const cleanKey = String(key);
+    const list = map.get(cleanKey) || [];
+    list.push(rule);
+    map.set(cleanKey, list);
+  }
+
+  function getSkuFromText(value) {
+    return String(value || "").replace(/sku:?/i, "").trim().toUpperCase();
+  }
+
+  function getSelectedVariantTokens() {
+    const selectors = [
+      "select option:checked",
+      "input[type='radio']:checked + label",
+      "input[type='radio']:checked",
+      ".js-insta-variant.selected",
+      ".js-insta-variant.active",
+      ".selected[data-option]",
+      ".active[data-option]",
+      "[aria-pressed='true']",
+      ".btn-variant.selected",
+      ".variant.selected"
+    ];
+    const tokens = [];
+    document.querySelectorAll(selectors.join(",")).forEach((node) => {
+      const value =
+        node.getAttribute?.("data-option") ||
+        node.getAttribute?.("data-value") ||
+        node.getAttribute?.("value") ||
+        node.textContent;
+      const normalized = normalizeText(value);
+      if (!normalized) return;
+      if (["selecione", "comprar", "adicionar", "0", "1"].includes(normalized)) return;
+      if (!tokens.includes(normalized)) tokens.push(normalized);
+    });
+    window.DG_WHOLESALE_DEBUG.selectedVariantTokens = tokens;
+    return tokens;
+  }
+
+  function chooseRuleForSelectedVariant(rules) {
+    if (!Array.isArray(rules) || !rules.length) return null;
+    const tokens = getSelectedVariantTokens();
+    if (!tokens.length) return rules[0];
+    return (
+      rules.find((rule) => {
+        const variantName = normalizeText(rule.variantName);
+        if (!variantName) return false;
+        return tokens.every((token) => variantName.includes(token) || token.includes(variantName));
+      }) || rules[0]
+    );
+  }
+
+  function getCurrentProductRule(maps) {
+    const selectedVariantId =
+      window.LS?.selectedVariant?.id ||
+      window.LS?.product?.selectedVariant?.id ||
+      window.selectedVariant?.id ||
+      document.querySelector("[name='variation_id'], [name='variant_id'], [data-selected-variant-id]")?.value ||
+      document.querySelector("[data-selected-variant-id]")?.getAttribute("data-selected-variant-id");
+    if (selectedVariantId && maps.byVariant.get(String(selectedVariantId))) {
+      return maps.byVariant.get(String(selectedVariantId));
+    }
+
+    const skuText = document.querySelector("[data-product-sku], .js-product-sku, .product-sku")?.textContent || "";
+    const sku = getSkuFromText(skuText);
+    if (sku && maps.bySku.get(sku)) return maps.bySku.get(sku);
+
+    const productIds = [
+      window.LS?.product?.id,
+      window.LS?.product?.product_id,
+      window.product?.id,
+      window.product?.product_id,
+      document.querySelector("[data-product-id]")?.getAttribute("data-product-id")
+    ].filter(Boolean).map(String);
+    for (const productId of productIds) {
+      const rules = maps.byProduct.get(productId);
+      if (rules?.length) return chooseRuleForSelectedVariant(rules);
+    }
+
+    const title =
+      document.querySelector("h1.js-product-name, h1.product-name, h1")?.textContent ||
+      document.querySelector("meta[property='og:title']")?.content ||
+      "";
+    const byName = maps.byProductName.get(normalizeText(title));
+    if (byName?.length) return chooseRuleForSelectedVariant(byName);
+
+    const byPath = maps.byUrl.get(normalizePath(window.location.href));
+    if (byPath) return byPath;
+
+    return null;
+  }
+
   function findRuleForElement(element, maps) {
     const closestVariant = element.closest?.("[data-variant-id], [data-variation-id], [data-store*='variant']");
     const variantId = getAttr(closestVariant, ["data-variant-id", "data-variation-id", "data-id"]);
@@ -182,27 +359,20 @@
 
     const closestProduct = element.closest?.("[data-product-id], [data-product], [data-item-product-id], [data-store*='product']");
     const productId = getAttr(closestProduct, ["data-product-id", "data-product", "data-item-product-id", "data-id"]);
-    if (productId && maps.byProduct.get(productId)) return maps.byProduct.get(productId)[0];
+    if (productId && maps.byProduct.get(productId)) return chooseRuleForSelectedVariant(maps.byProduct.get(productId));
 
     const skuText = document.querySelector("[data-product-sku], .js-product-sku, .product-sku")?.textContent || "";
-    const sku = skuText.replace(/sku:?/i, "").trim().toUpperCase();
+    const sku = getSkuFromText(skuText);
     if (sku && maps.bySku.get(sku)) return maps.bySku.get(sku);
-
-    const lsProductId =
-      window.LS?.product?.id ||
-      window.LS?.product?.product_id ||
-      window.product?.id ||
-      window.product?.product_id;
-    if (lsProductId && maps.byProduct.get(String(lsProductId))) return maps.byProduct.get(String(lsProductId))[0];
 
     const href = element.closest?.(".js-product-container,.js-item-product,.product-item")?.querySelector?.("a[href]")?.href || location.href;
     if (href) {
-      const normalizedHref = String(href).split("?")[0].replace(/\/$/, "");
+      const normalizedHref = normalizePath(href);
       const byUrl = maps.byUrl.get(normalizedHref);
       if (byUrl) return byUrl;
     }
 
-    return null;
+    return getCurrentProductRule(maps);
   }
 
   function applyWholesalePrices(context) {
@@ -213,21 +383,20 @@
       byVariant: new Map(),
       byProduct: new Map(),
       bySku: new Map(),
-      byUrl: new Map()
+      byUrl: new Map(),
+      byProductName: new Map()
     };
 
     rules.forEach((rule) => {
       if (rule.variantId) maps.byVariant.set(String(rule.variantId), rule);
       if (rule.sku) maps.bySku.set(String(rule.sku).toUpperCase(), rule);
       if (rule.url) {
-        maps.byUrl.set(String(rule.url).split("?")[0].replace(/\/$/, ""), rule);
+        maps.byUrl.set(normalizePath(rule.url), rule);
       }
       if (rule.productId) {
-        const key = String(rule.productId);
-        const list = maps.byProduct.get(key) || [];
-        list.push(rule);
-        maps.byProduct.set(key, list);
+        addRuleToList(maps.byProduct, rule.productId, rule);
       }
+      if (rule.productName) addRuleToList(maps.byProductName, normalizeText(rule.productName), rule);
     });
 
     const selectors = [
@@ -236,12 +405,16 @@
       ".js-price",
       ".price",
       "#price_display",
+      "[id='price_display']",
       "[data-store='product-price']",
+      "[data-store='product-price-current']",
       "[data-store='product-item-price']"
     ];
 
-    const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
+    const nodes = Array.from(document.querySelectorAll(selectors.join(",")))
+      .filter((node) => !/compare|old|list-price|price-compare/i.test(`${node.id} ${node.className}`));
     let applied = 0;
+    const matched = [];
     nodes.forEach((node) => {
       const rule = findRuleForElement(node, maps);
       if (!rule) return;
@@ -249,12 +422,21 @@
       node.dataset.dgWholesaleApplied = "true";
       node.textContent = moneyBR(rule.wholesalePrice);
       node.classList.add("dg-wholesale-price-applied");
+      matched.push({
+        productId: rule.productId || "",
+        variantId: rule.variantId || "",
+        sku: rule.sku || "",
+        productName: rule.productName || "",
+        variantName: rule.variantName || "",
+        wholesalePrice: rule.wholesalePrice
+      });
       applied += 1;
     });
 
     window.DG_WHOLESALE_DEBUG.applied = applied;
     window.DG_WHOLESALE_DEBUG.priceNodes = nodes.length;
     window.DG_WHOLESALE_DEBUG.rules = rules.length;
+    window.DG_WHOLESALE_DEBUG.matchedRules = matched.slice(0, 8);
     window.DG_WHOLESALE_DEBUG.lastReason = applied ? "prices_applied" : "no_matching_price_nodes";
 
     if (applied && !document.querySelector("[data-dg-wholesale-banner]")) {
@@ -286,29 +468,32 @@
       email: customer.email || ""
     };
 
-    const style = document.createElement("style");
-    style.textContent = `
-      .dg-wholesale-price-applied {
-        color: #0050d8 !important;
-        font-weight: 700 !important;
-      }
-      .dg-wholesale-banner {
-        position: fixed;
-        left: 50%;
-        bottom: 22px;
-        z-index: 999999;
-        transform: translateX(-50%);
-        max-width: calc(100vw - 32px);
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-        background: #eff6ff;
-        color: #1d4ed8;
-        padding: 12px 16px;
-        font: 600 13px/1.35 Poppins, Arial, sans-serif;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, .12);
-      }
-    `;
-    document.head.appendChild(style);
+    if (!document.querySelector("[data-dg-wholesale-price-style]")) {
+      const style = document.createElement("style");
+      style.setAttribute("data-dg-wholesale-price-style", "true");
+      style.textContent = `
+        .dg-wholesale-price-applied {
+          color: #0050d8 !important;
+          font-weight: 700 !important;
+        }
+        .dg-wholesale-banner {
+          position: fixed;
+          left: 50%;
+          bottom: 22px;
+          z-index: 999999;
+          transform: translateX(-50%);
+          max-width: calc(100vw - 32px);
+          border: 1px solid #bfdbfe;
+          border-radius: 8px;
+          background: #eff6ff;
+          color: #1d4ed8;
+          padding: 12px 16px;
+          font: 600 13px/1.35 Poppins, Arial, sans-serif;
+          box-shadow: 0 12px 28px rgba(15, 23, 42, .12);
+        }
+      `;
+      document.head.appendChild(style);
+    }
 
     try {
       const params = new URLSearchParams();
@@ -325,13 +510,20 @@
       };
       applyWholesalePrices(context);
 
-      const rerun = () => window.requestAnimationFrame(() => applyWholesalePrices(context));
-      document.addEventListener("change", rerun, true);
-      document.addEventListener("click", (event) => {
-        if (event.target.closest("select, input, button, .js-product-variants, .js-insta-variant")) rerun();
-      }, true);
-      const observer = new MutationObserver(() => rerun());
-      observer.observe(document.body, { childList: true, subtree: true });
+      let applyTimer = 0;
+      const rerun = () => {
+        window.clearTimeout(applyTimer);
+        applyTimer = window.setTimeout(() => applyWholesalePrices(context), 120);
+      };
+      if (!window.DG_WHOLESALE_PRICE_OBSERVER_READY) {
+        window.DG_WHOLESALE_PRICE_OBSERVER_READY = true;
+        document.addEventListener("change", rerun, true);
+        document.addEventListener("click", (event) => {
+          if (event.target.closest("select, input, button, .js-product-variants, .js-insta-variant, [data-option]")) rerun();
+        }, true);
+        const observer = new MutationObserver(() => rerun());
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
     } catch (error) {
       window.DG_WHOLESALE_DEBUG.lastReason = "context_request_failed";
       window.DG_WHOLESALE_DEBUG.error = error.message || String(error);
@@ -350,6 +542,14 @@
     window.addEventListener("load", () => initStorefrontWholesalePrices());
     window.addEventListener("focus", () => initStorefrontWholesalePrices());
     document.addEventListener("click", () => initStorefrontWholesalePrices(), true);
+
+    if (isLoginPage()) {
+      const loginForm = findLoginForm();
+      loginForm?.addEventListener("submit", () => {
+        const email = loginForm.querySelector('input[type="email"], input[name*="email" i]')?.value;
+        saveWholesaleEmail(email);
+      });
+    }
 
     if (!isAccountPage()) return;
     if (document.querySelector("[data-dg-wholesale-login]")) return;
@@ -668,6 +868,7 @@
             data
           });
         }
+        saveWholesaleEmail(payload.email);
         renderResult({
           panel,
           approved: data.approved !== false,

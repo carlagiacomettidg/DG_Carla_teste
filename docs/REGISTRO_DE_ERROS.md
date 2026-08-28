@@ -759,3 +759,35 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-21-tiny-stock-parse-v1`
+
+## 2026-08-28 - Preco de atacado nao aparecia na vitrine para cliente aprovado
+
+**Erro**
+
+O cliente atacado estava cadastrado e aprovado, e o endpoint publico do app ja retornava `wholesale: true` com preco de atacado para o SKU da variacao. Mesmo assim, a pagina do produto continuava mostrando o preco normal da Nuvemshop.
+
+**Onde apareceu**
+
+- Vitrine da loja, na pagina do produto.
+- Produto `Calca mol bebe`.
+- SKUs `199-1`, `199-2`, `199-3`, `199-4` e `199-5`.
+
+**Motivo**
+
+O backend estava correto, mas o script da vitrine dependia de o tema expor o cliente logado em variaveis JavaScript da Nuvemshop. Em alguns temas essa informacao nao fica disponivel para scripts externos. Quando o script nao encontrava e-mail ou ID do cliente, ele nem consultava `/api/storefront-wholesale-context` e, por isso, nao aplicava as regras de atacado. Tambem havia risco de o script nao casar corretamente a variacao selecionada quando a pagina dependia de cor/tamanho em vez de IDs claros no HTML.
+
+**Como corrigimos**
+
+- O script passou a salvar o e-mail atacado no navegador quando o cliente envia o cadastro ou faz login pela pagina nativa.
+- A vitrine passou a usar esse e-mail como fallback quando a Nuvemshop nao expuser o cliente diretamente, evitando usar o fallback quando a pagina mostrar claramente estado de login/cadastro.
+- Melhoramos o casamento de regras por `variantId`, `productId`, SKU, nome do produto, URL e tokens da variacao selecionada, como cor e tamanho.
+- O script reaplica o preco quando a cliente troca opcoes de variacao.
+- Adicionamos diagnostico em `window.DG_WHOLESALE_DEBUG` para validar se o cliente foi detectado, quantos precos foram encontrados e quais regras foram aplicadas.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-28-storefront-price-apply-v1`
