@@ -32,7 +32,7 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-28-storefront-price-apply-v1";
+const APP_VERSION = "2026-08-28-storefront-session-stock-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
@@ -143,6 +143,7 @@ function isPublicRoute(req, pathname) {
   }
   if (req.method === "GET" && pathname === "/api/storefront-wholesale-context") return true;
   if (req.method === "GET" && pathname === "/api/cron/tiny-sync") return true;
+  if (req.method === "GET" && pathname === "/api/tiny/debug-sku") return true;
   if (req.method === "POST" && pathname === "/api/wholesale-requests") return true;
   return false;
 }
@@ -315,6 +316,15 @@ function sameStore(store, storeId) {
 
 function cleanString(value) {
   return String(value || "").trim();
+}
+
+function normalizeComparable(value) {
+  return cleanString(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildWholesaleAddress(body) {
@@ -794,6 +804,39 @@ async function handleApi(req, res) {
     }
   }
 
+  if (isRoute(req, "GET", "/api/tiny/debug-sku")) {
+    const cronSecret = cleanString(process.env.CRON_SECRET);
+    const authorization = cleanString(req.headers.authorization);
+    const querySecret = cleanString(url.searchParams.get("secret"));
+    if (cronSecret && authorization !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+      return sendJson(req, res, 401, { error: "Diagnostico nao autorizado." });
+    }
+
+    const sku = normalizeSku(url.searchParams.get("sku") || process.env.TINY_TEST_SKU || "");
+    if (!sku) {
+      return sendJson(req, res, 400, { error: "Informe um SKU para diagnosticar." });
+    }
+
+    try {
+      const priceListKeyword = process.env.TINY_PRICE_LIST_KEYWORD || process.env.TINY_PRICE_LIST_NAME || "Atacado";
+      const depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado";
+      const priceLists = await findTinyPriceLists({ keyword: priceListKeyword });
+      const tinyProduct = await getTinyWholesaleBySkuFromPriceLists({ sku, priceLists, depositName });
+      const db = await readDb();
+      const matchingRules = (db.rules || []).filter((rule) => normalizeSku(rule.sku) === normalizeSku(tinyProduct.sku));
+      return sendJson(req, res, 200, {
+        ok: true,
+        sku,
+        priceListKeyword,
+        depositName,
+        tinyProduct,
+        matchingRules
+      });
+    } catch (error) {
+      return sendJson(req, res, 400, { ok: false, sku, error: error.message });
+    }
+  }
+
   if (isRoute(req, "POST", "/api/tiny/sync-sku")) {
     const body = await parseBody(req);
     const sku = normalizeSku(body.sku || process.env.TINY_TEST_SKU || "");
@@ -904,6 +947,7 @@ async function handleApi(req, res) {
     const db = await readDb();
     const email = cleanString(url.searchParams.get("email")).toLowerCase();
     const customerId = cleanString(url.searchParams.get("customerId"));
+    const customerName = cleanString(url.searchParams.get("customerName"));
 
     if (!db.store?.id || !db.store?.accessToken) {
       return sendJson(req, res, 200, { wholesale: false, reason: "store_not_connected" });
@@ -928,6 +972,30 @@ async function handleApi(req, res) {
           accessToken: db.store.accessToken,
           email
         });
+      }
+      if (!customer && customerName) {
+        const targetName = normalizeComparable(customerName);
+        const targetParts = targetName.split(" ").filter((part) => part.length > 1);
+        const customers = await listAllCustomers({
+          storeId: db.store.id,
+          accessToken: db.store.accessToken
+        });
+        const wholesaleMatches = customers.filter((item) => {
+          if (!isWholesaleNuvemshopCustomer(item)) return false;
+          const name = normalizeComparable(item.name);
+          if (!name || !targetName) return false;
+          if (name === targetName || name.startsWith(`${targetName} `)) return true;
+          return targetParts.length > 0 && targetParts.every((part) => name.includes(part));
+        });
+        if (wholesaleMatches.length === 1) {
+          customer = wholesaleMatches[0];
+        } else if (wholesaleMatches.length > 1) {
+          return sendJson(req, res, 200, {
+            wholesale: false,
+            reason: "customer_name_ambiguous",
+            matches: wholesaleMatches.length
+          });
+        }
       }
     } catch (error) {
       return sendJson(req, res, 200, {

@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-28-storefront-price-apply-v1";
+  const SCRIPT_VERSION = "2026-08-28-storefront-session-stock-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,
@@ -64,6 +64,28 @@
     } catch {
       return "";
     }
+  }
+
+  function getGreetingCustomerName() {
+    const selectors = [
+      ".js-customer-name",
+      "[data-store='account-name']",
+      ".account-name",
+      ".customer-name",
+      "header",
+      ".header",
+      ".js-account-container"
+    ];
+    for (const selector of selectors) {
+      const text = document.querySelector(selector)?.textContent || "";
+      const match = text.match(/ol[áa],?\s*([^!\n\r]+)/i);
+      if (match?.[1]) {
+        return match[1].replace(/\b(sair|minha conta|meus pedidos)\b/gi, "").trim();
+      }
+    }
+    const bodyText = document.body.textContent.slice(0, 3000);
+    const match = bodyText.match(/ol[áa],?\s*([^!\n\r]{2,80})/i);
+    return match?.[1] ? match[1].replace(/\b(sair|minha conta|meus pedidos)\b/gi, "").trim() : "";
   }
 
   function formatCnpj(value) {
@@ -238,6 +260,12 @@
     if (storedEmail && (looksLoggedIn || !loginTextVisible)) {
       window.DG_WHOLESALE_DEBUG.fallbackEmailUsed = true;
       return { id: "", email: storedEmail, source: looksLoggedIn ? "stored_wholesale_email" : "stored_wholesale_email_no_public_customer" };
+    }
+
+    const greetingName = looksLoggedIn ? getGreetingCustomerName() : "";
+    if (greetingName) {
+      window.DG_WHOLESALE_DEBUG.fallbackNameUsed = true;
+      return { id: "", email: "", name: greetingName, source: "storefront_greeting_name" };
     }
 
     return null;
@@ -453,7 +481,7 @@
     if (window.DG_WHOLESALE_DEBUG?.contextLoaded && window.DG_WHOLESALE_DEBUG?.applied > 0) return;
     window.DG_WHOLESALE_DEBUG.attempts = attempt + 1;
     const customer = getCurrentStorefrontCustomer();
-    if (!customer?.email && !customer?.id) {
+    if (!customer?.email && !customer?.id && !customer?.name) {
       window.DG_WHOLESALE_DEBUG.customerFound = false;
       window.DG_WHOLESALE_DEBUG.lastReason = "customer_not_found_in_storefront";
       if (attempt < 60) {
@@ -465,7 +493,9 @@
     window.DG_WHOLESALE_DEBUG.customerFound = true;
     window.DG_WHOLESALE_DEBUG.customer = {
       id: customer.id || "",
-      email: customer.email || ""
+      email: customer.email || "",
+      name: customer.name || "",
+      source: customer.source || ""
     };
 
     if (!document.querySelector("[data-dg-wholesale-price-style]")) {
@@ -499,6 +529,7 @@
       const params = new URLSearchParams();
       if (customer.email) params.set("email", customer.email);
       if (customer.id) params.set("customerId", customer.id);
+      if (customer.name) params.set("customerName", customer.name);
       const response = await fetch(`${APP_URL}/api/storefront-wholesale-context?${params.toString()}`);
       const context = await response.json();
       window.DG_WHOLESALE_CONTEXT = context;

@@ -23,6 +23,27 @@ function tinyNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function tinyStockValue(source = {}) {
+  const fields = [
+    "saldo",
+    "saldo_disponivel",
+    "saldoDisponivel",
+    "saldo_fisico",
+    "saldoFisico",
+    "estoque",
+    "quantidade",
+    "quantity",
+    "disponivel",
+    "available"
+  ];
+  for (const field of fields) {
+    if (source[field] !== undefined && source[field] !== null && source[field] !== "") {
+      return tinyNumber(source[field]);
+    }
+  }
+  return 0;
+}
+
 function getToken() {
   const token = clean(process.env.TINY_API_TOKEN);
   if (!token) {
@@ -226,18 +247,18 @@ export async function getTinyStockByDeposit({
     return name && target && (name.includes(target) || target.includes(name));
   });
   const deposit = exactDeposit || partialDeposit || null;
-  const stock = deposit ? tinyNumber(deposit.saldo || 0) : tinyNumber(product.saldo || 0);
+  const stock = deposit ? tinyStockValue(deposit) : tinyStockValue(product);
 
   return {
     sku: clean(product.codigo),
     productName: clean(product.nome),
     productId: String(productId || ""),
-    totalStock: tinyNumber(product.saldo || 0),
+    totalStock: tinyStockValue(product),
     stock,
     deposit,
     deposits: deposits.map((item) => ({
       ...item,
-      parsedSaldo: tinyNumber(item.saldo || 0)
+      parsedSaldo: tinyStockValue(item)
     }))
   };
 }
@@ -277,13 +298,13 @@ export async function getTinyWholesaleBySku({
     stockDeposit: stockData?.deposit
       ? {
           name: clean(stockData.deposit.nome),
-          stock: tinyNumber(stockData.deposit.saldo || 0),
+          stock: tinyStockValue(stockData.deposit),
           ignored: clean(stockData.deposit.desconsiderar)
         }
       : null,
     availableDeposits: stockData?.deposits?.map((deposit) => ({
       name: clean(deposit.nome),
-      stock: tinyNumber(deposit.saldo || deposit.parsedSaldo || 0),
+      stock: tinyStockValue(deposit) || tinyNumber(deposit.parsedSaldo || 0),
       ignored: clean(deposit.desconsiderar)
     })) || []
   };
@@ -336,13 +357,13 @@ export async function getTinyWholesaleBySkuFromPriceLists({
     stockDeposit: stockData?.deposit
       ? {
           name: clean(stockData.deposit.nome),
-          stock: tinyNumber(stockData.deposit.saldo || 0),
+          stock: tinyStockValue(stockData.deposit),
           ignored: clean(stockData.deposit.desconsiderar)
         }
       : null,
     availableDeposits: stockData?.deposits?.map((deposit) => ({
       name: clean(deposit.nome),
-      stock: tinyNumber(deposit.saldo || deposit.parsedSaldo || 0),
+      stock: tinyStockValue(deposit) || tinyNumber(deposit.parsedSaldo || 0),
       ignored: clean(deposit.desconsiderar)
     })) || []
   };

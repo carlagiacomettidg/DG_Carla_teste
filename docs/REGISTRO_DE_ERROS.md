@@ -791,3 +791,34 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-28-storefront-price-apply-v1`
+
+## 2026-08-28 - Vitrine logada continuava sem preco atacado e estoque Tiny podia ficar zerado
+
+**Erro**
+
+Mesmo com o cliente atacado aprovado e logado na loja, a vitrine ainda mostrava o preco de varejo. No painel, alguns SKUs exibiam preco de atacado correto, mas estoque de atacado como `0`, mesmo com estoque informado no Tiny.
+
+**Onde apareceu**
+
+- Vitrine da loja em `/produtos/calca-mol-bebe/`.
+- Painel incorporado em `Produtos em atacado`.
+- SKU `199-1`.
+
+**Motivo**
+
+O script da vitrine ainda podia ficar sem nenhum identificador confiavel do cliente quando o tema mostrava apenas a saudacao, como `Ola, Carla!`, sem e-mail ou ID do cliente em variaveis JavaScript. Nesse caso, o script nao conseguia consultar o endpoint de atacado para aquele cliente ja logado. No estoque, a leitura do Tiny estava centrada no campo `saldo`; se a conta/endpoint retornasse o saldo com outro nome de campo, o valor podia cair como zero.
+
+**Como corrigimos**
+
+- O script da vitrine passou a extrair o nome da saudacao da loja como ultimo fallback de sessao.
+- O endpoint `/api/storefront-wholesale-context` passou a aceitar `customerName` e so libera o atacado se encontrar exatamente um cliente atacado aprovado com esse nome.
+- A leitura de estoque do Tiny passou a aceitar campos alternativos, como `saldo_disponivel`, `saldoFisico`, `estoque`, `quantidade`, `disponivel` e similares.
+- Criamos um endpoint protegido por `CRON_SECRET` para diagnosticar um SKU no Tiny e comparar com a regra salva no app: `/api/tiny/debug-sku`.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-08-28-storefront-session-stock-v1`
