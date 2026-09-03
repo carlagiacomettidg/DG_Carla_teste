@@ -945,3 +945,34 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-09-02-fast-tiny-sync-v1`
+
+## 2026-09-02 - Vitrine logada ainda mostrava preco de varejo nos cards
+
+**Erro**
+
+Mesmo com cliente aprovado como atacado e logado na loja, a busca/listagem da vitrine continuava exibindo o preco de varejo. No painel do app, o mesmo produto ja mostrava preco de atacado correto vindo do Tiny, por exemplo `Calca mol bebe` com SKU `199-1` e preco atacado `20,58`.
+
+**Onde apareceu**
+
+- Resultado de busca da loja.
+- Card do produto `Calca mol bebe`.
+- Cliente logado com cadastro CNPJ atacado.
+
+**Motivo**
+
+O script da vitrine conseguia aplicar preco com mais seguranca na pagina de produto, onde existe contexto de produto/variacao. Ja nos cards de busca e categoria, o tema nao expunha SKU ou ID de variacao perto do preco. Assim, o script nao conseguia casar o card com a regra de atacado e deixava o preco original de varejo.
+
+**Como corrigimos**
+
+- O endpoint da vitrine passou a enviar tambem um resumo por produto, alem das regras por variacao.
+- O script passou a identificar cards de produto por seletores mais amplos e pelo nome exibido no proprio card.
+- Quando o card tem varias variacoes, o script escolhe a regra com estoque atacado disponivel; em empate, escolhe o menor preco atacado.
+- O arquivo `wholesale-login.js` e o JSON de contexto passaram a responder sem cache para evitar que a loja continue usando uma versao antiga logo apos o deploy.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-09-02-storefront-card-price-v1`

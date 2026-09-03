@@ -32,7 +32,7 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-09-02-fast-tiny-sync-v1";
+const APP_VERSION = "2026-09-02-storefront-card-price-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
@@ -78,7 +78,11 @@ function corsHeaders(req) {
 }
 
 function sendJson(req, res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(req) });
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store, max-age=0",
+    ...corsHeaders(req)
+  });
   res.end(JSON.stringify(payload, null, 2));
 }
 
@@ -246,8 +250,10 @@ async function serveStatic(req, res) {
   try {
     const content = await fs.readFile(resolved);
     const ext = path.extname(resolved);
+    const noStore = path.basename(resolved) === "wholesale-login.js";
     res.writeHead(200, {
-      "Content-Type": contentTypes[ext] || "application/octet-stream"
+      "Content-Type": contentTypes[ext] || "application/octet-stream",
+      ...(noStore ? { "Cache-Control": "no-store, max-age=0" } : {})
     });
     res.end(content);
   } catch {
@@ -423,6 +429,35 @@ function mapStorefrontRule(rule) {
     wholesalePrice: money(rule.wholesalePrice),
     wholesaleStock: Number(rule.wholesaleStock || 0)
   };
+}
+
+function mapStorefrontProductSummary(rules) {
+  const byProduct = new Map();
+  const score = (rule) => [
+    Number(rule?.wholesaleStock || 0) > 0 ? 0 : 1,
+    Number(rule?.wholesalePrice || 0)
+  ];
+  const isBetter = (next, current) => {
+    if (!current) return true;
+    const [nextStockRank, nextPrice] = score(next);
+    const [currentStockRank, currentPrice] = score(current);
+    if (nextStockRank !== currentStockRank) return nextStockRank < currentStockRank;
+    return nextPrice < currentPrice;
+  };
+  (rules || [])
+    .filter((rule) => rule.enabled !== false && Number(rule.wholesalePrice || 0) > 0)
+    .forEach((rule) => {
+      const productId = cleanString(rule.productId);
+      const productName = cleanString(rule.productName);
+      const key = productId || normalizeComparable(productName);
+      if (!key) return;
+      const current = byProduct.get(key);
+      const next = mapStorefrontRule(rule);
+      if (isBetter(next, current)) {
+        byProduct.set(key, next);
+      }
+    });
+  return Array.from(byProduct.values());
 }
 
 async function listNuvemshopWholesaleCustomers(db) {
@@ -1215,7 +1250,8 @@ async function handleApi(req, res) {
       },
       rules: (db.rules || [])
         .filter((rule) => rule.enabled !== false && Number(rule.wholesalePrice || 0) > 0)
-        .map(mapStorefrontRule)
+        .map(mapStorefrontRule),
+      products: mapStorefrontProductSummary(db.rules || [])
     });
   }
 

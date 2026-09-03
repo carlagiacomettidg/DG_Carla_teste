@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-08-28-storefront-name-fallback-v1";
+  const SCRIPT_VERSION = "2026-09-02-storefront-card-price-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,
@@ -360,6 +360,64 @@
     );
   }
 
+  function chooseRuleForProductCard(rules) {
+    if (!Array.isArray(rules) || !rules.length) return null;
+    return rules
+      .slice()
+      .sort((a, b) => {
+        const aStock = Number(a.wholesaleStock || 0) > 0 ? 0 : 1;
+        const bStock = Number(b.wholesaleStock || 0) > 0 ? 0 : 1;
+        if (aStock !== bStock) return aStock - bStock;
+        return Number(a.wholesalePrice || 0) - Number(b.wholesalePrice || 0);
+      })[0];
+  }
+
+  function findProductCard(element) {
+    return element.closest?.([
+      ".js-product-container",
+      ".js-item-product",
+      ".product-item",
+      ".product-card",
+      ".item-product",
+      ".grid-item",
+      ".col-product",
+      "[data-product-id]",
+      "[data-product]",
+      "[data-item-product-id]",
+      "[data-store*='product-item']",
+      "[data-store*='product']"
+    ].join(","));
+  }
+
+  function getProductCardTitle(card) {
+    if (!card) return "";
+    const selectors = [
+      ".js-item-name",
+      ".js-product-name",
+      ".product-name",
+      ".item-name",
+      ".product-title",
+      ".js-item-title",
+      ".item-title",
+      "[data-store='product-item-name']",
+      "[data-store='product-name']",
+      "h2",
+      "h3",
+      "h4",
+      "a[title]",
+      "a[href*='/produtos/']"
+    ];
+    for (const selector of selectors) {
+      const node = card.querySelector?.(selector);
+      const value = node?.getAttribute?.("title") || node?.textContent || "";
+      const normalized = normalizeText(value);
+      if (normalized && !normalized.includes("comprar") && !normalized.includes("ver produto")) {
+        return value;
+      }
+    }
+    return "";
+  }
+
   function getCurrentProductRule(maps) {
     const selectedVariantId =
       window.LS?.selectedVariant?.id ||
@@ -405,15 +463,19 @@
     const variantId = getAttr(closestVariant, ["data-variant-id", "data-variation-id", "data-id"]);
     if (variantId && maps.byVariant.get(variantId)) return maps.byVariant.get(variantId);
 
-    const closestProduct = element.closest?.("[data-product-id], [data-product], [data-item-product-id], [data-store*='product']");
+    const closestProduct = findProductCard(element);
     const productId = getAttr(closestProduct, ["data-product-id", "data-product", "data-item-product-id", "data-id"]);
-    if (productId && maps.byProduct.get(productId)) return chooseRuleForSelectedVariant(maps.byProduct.get(productId));
+    if (productId && maps.byProduct.get(productId)) return chooseRuleForProductCard(maps.byProduct.get(productId));
 
     const skuText = document.querySelector("[data-product-sku], .js-product-sku, .product-sku")?.textContent || "";
     const sku = getSkuFromText(skuText);
     if (sku && maps.bySku.get(sku)) return maps.bySku.get(sku);
 
-    const href = element.closest?.(".js-product-container,.js-item-product,.product-item")?.querySelector?.("a[href]")?.href || location.href;
+    const cardTitle = getProductCardTitle(closestProduct);
+    const byCardName = maps.byProductName.get(normalizeText(cardTitle));
+    if (byCardName?.length) return chooseRuleForProductCard(byCardName);
+
+    const href = closestProduct?.querySelector?.("a[href*='/produtos/']")?.href || closestProduct?.querySelector?.("a[href]")?.href || location.href;
     if (href) {
       const normalizedHref = normalizePath(href);
       const byUrl = maps.byUrl.get(normalizedHref);
@@ -424,7 +486,10 @@
   }
 
   function applyWholesalePrices(context) {
-    const rules = Array.isArray(context.rules) ? context.rules : [];
+    const rules = [
+      ...(Array.isArray(context.rules) ? context.rules : []),
+      ...(Array.isArray(context.products) ? context.products : [])
+    ];
     if (!context.wholesale || !rules.length) return;
 
     const maps = {
@@ -565,7 +630,9 @@
       if (customer.email) params.set("email", customer.email);
       if (customer.id) params.set("customerId", customer.id);
       if (customer.name) params.set("customerName", customer.name);
-      const response = await fetch(`${APP_URL}/api/storefront-wholesale-context?${params.toString()}`);
+      const response = await fetch(`${APP_URL}/api/storefront-wholesale-context?${params.toString()}`, {
+        cache: "no-store"
+      });
       const context = await response.json();
       window.DG_WHOLESALE_CONTEXT = context;
       window.DG_WHOLESALE_DEBUG.contextLoaded = true;
