@@ -976,3 +976,31 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-09-02-storefront-card-price-v1`
+
+## 2026-09-03 - Deploy Vercel falhou por cron frequente em conta Hobby
+
+**Erro**
+
+O deploy de producao pela Vercel CLI falhou com a mensagem de que contas Hobby sao limitadas a cron jobs diarios. O app estava configurado com cron `*/5 * * * *`, ou seja, execucao a cada 5 minutos.
+
+**Onde apareceu**
+
+- Deploy do projeto `dg-venus-modas` na Vercel.
+- Comando `npx vercel --prod --yes`.
+
+**Motivo**
+
+A sincronizacao automatica do Tiny foi configurada como Vercel Cron a cada 5 minutos, mas a conta Vercel atual e Hobby. Nesse plano, a Vercel aceita apenas cron diario.
+
+**Como corrigimos**
+
+- Alteramos o cron nativo da Vercel para uma execucao diaria, permitindo o deploy em conta Hobby.
+- Mantivemos o endpoint protegido `/api/cron/tiny-sync` funcionando. Para sincronizacao em intervalos curtos, como 5 ou 15 minutos, o acionamento deve ser feito por um cron externo usando `CRON_SECRET`, ou a conta Vercel precisa subir para Pro.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-09-02-storefront-card-price-v1`
