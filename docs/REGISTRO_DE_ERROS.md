@@ -1004,3 +1004,38 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-09-02-storefront-card-price-v1`
+
+## 2026-09-03 - Preco atacado nao aparecia na vitrine e sync Tiny pausava
+
+**Erro**
+
+Mesmo com cliente logado e aprovado como atacado, a vitrine continuava exibindo preco de varejo. Ao mesmo tempo, a sincronizacao Tiny ficava lenta e entrava em pausa temporaria por excesso de chamadas na API.
+
+**Onde apareceu**
+
+- Vitrine da loja, em cards de busca/categoria e pagina de produto.
+- Painel `Produtos em atacado`.
+- Botao `Sincronizar Tiny`.
+
+**Motivo**
+
+O endpoint da vitrine ja retornava `wholesale: true` e regras corretas, mas o script podia identificar o proprio elemento de preco como se fosse o card do produto. Com isso ele nao encontrava nome/link/SKU do produto e nao casava a regra. Na sincronizacao, cliques repetidos, aba aberta e cron podiam tentar processar lotes muito proximos, enquanto a descoberta de vinculos Tiny ainda fazia buscas desnecessarias quando o SKU podia vir direto da lista de preco ou das atualizacoes do Tiny.
+
+**Como corrigimos**
+
+- A deteccao de card na vitrine passou a ignorar elementos que parecem apenas preco e procurar um card real com link/nome de produto.
+- A deteccao de cliente logado passou a reconhecer melhor o padrao `Ola, Nome` junto com `Sair`.
+- A sincronizacao Tiny passou a continuar jobs ativos em vez de reiniciar a fila.
+- O servidor ganhou trava curta de execucao para evitar chamadas concorrentes pelo painel/cron.
+- O cooldown apos bloqueio do Tiny foi ampliado para respeitar a pausa da API.
+- A lista de excecoes de preco passou a aproveitar SKU/nome quando o Tiny enviar esses campos.
+- A fila incremental `lista.atualizacoes.produtos` passou a ajudar a relacionar SKU da Nuvemshop com produto Tiny sem buscar item por item.
+- O painel reduziu polling automatico para nao contribuir com bloqueio da API.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-09-03-storefront-tiny-stability-v1`

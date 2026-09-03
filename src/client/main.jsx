@@ -158,6 +158,7 @@ function App() {
   useEffect(() => {
     if (!adminReady || !tinySyncStatus || !["queued", "processing", "rate_limited"].includes(tinySyncStatus.status)) return;
 
+    const pollMs = tinySyncStatus.status === "rate_limited" ? 60000 : 30000;
     const timer = window.setInterval(async () => {
       try {
         const result = await api("/api/tiny/sync-rules/process", { method: "POST", body: JSON.stringify({}) });
@@ -167,7 +168,7 @@ function App() {
       } catch (error) {
         setNotice(error.message || "Não foi possível atualizar a sincronização do Tiny.");
       }
-    }, 15000);
+    }, pollMs);
 
     return () => window.clearInterval(timer);
   }, [adminReady, tinySyncStatus?.status]);
@@ -323,11 +324,11 @@ function App() {
   async function syncTinyRules() {
     if (tinyLoading) return;
     setTinyLoading(true);
-    setNotice("Criando fila de sincronização do Tiny...");
+    setNotice("Continuando sincronização do Tiny...");
     try {
       const started = await api("/api/tiny/sync-rules/start", {
         method: "POST",
-        body: JSON.stringify({ restart: true })
+        body: JSON.stringify({ restart: false })
       });
       setTinySyncStatus(started.status);
       if (Array.isArray(started.rules)) setRules(started.rules);

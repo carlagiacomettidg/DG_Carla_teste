@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-09-02-storefront-card-price-v1";
+  const SCRIPT_VERSION = "2026-09-03-storefront-tiny-stability-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,
@@ -257,6 +257,7 @@
 
     const loggedInSignals = [
       'a[href*="/account/logout"]',
+      'a[href*="/account"]',
       'form[action*="/account/logout"]',
       ".js-customer-logout",
       ".js-customer-name",
@@ -272,6 +273,8 @@
       headerText.includes("criar uma conta");
     const looksLoggedIn =
       hasLoggedInSignal ||
+      (headerText.includes("ola,") && headerText.includes("sair")) ||
+      (headerText.includes("olá,") && headerText.includes("sair")) ||
       (headerText.includes("minha conta") && !loginTextVisible);
 
     window.DG_WHOLESALE_DEBUG.loggedInDetected = looksLoggedIn;
@@ -373,7 +376,7 @@
   }
 
   function findProductCard(element) {
-    return element.closest?.([
+    const selectors = [
       ".js-product-container",
       ".js-item-product",
       ".product-item",
@@ -384,9 +387,23 @@
       "[data-product-id]",
       "[data-product]",
       "[data-item-product-id]",
-      "[data-store*='product-item']",
-      "[data-store*='product']"
-    ].join(","));
+      "[data-store='product-item']",
+      "[data-store='product-card']"
+    ];
+    const pricePattern = /price|preco|valor/i;
+    let current = element;
+    while (current && current !== document.body) {
+      if (current.matches?.(selectors.join(","))) {
+        const marker = `${current.id || ""} ${current.className || ""} ${current.getAttribute?.("data-store") || ""}`;
+        const hasProductLink = Boolean(current.querySelector?.("a[href*='/produtos/']"));
+        const hasTitle = Boolean(getProductCardTitle(current));
+        if (!pricePattern.test(marker) || hasProductLink || hasTitle) {
+          return current;
+        }
+      }
+      current = current.parentElement;
+    }
+    return null;
   }
 
   function getProductCardTitle(card) {

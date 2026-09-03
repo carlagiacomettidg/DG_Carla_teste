@@ -266,6 +266,8 @@ export async function buildTinyWholesalePriceIndex(priceLists) {
       seen.add(productId);
       items.push({
         productId,
+        sku: clean(record.codigo || record.sku || record.codigo_produto),
+        productName: clean(record.nome || record.nome_produto || record.descricao),
         wholesalePrice,
         priceList: {
           id: String(priceList.id || ""),
@@ -282,6 +284,40 @@ export async function buildTinyWholesalePriceIndex(priceLists) {
 export function tinyDefaultStockSince() {
   const date = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return formatTinyDate(date);
+}
+
+export async function listTinyProductUpdates({
+  dataAlteracao = tinyDefaultStockSince(),
+  maxPages = 20
+} = {}) {
+  const updates = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const retorno = await tinyRequest("lista.atualizacoes.produtos", {
+      dataAlteracao,
+      pagina: page
+    });
+    const products = unwrapList(retorno.produtos, "produto");
+    products.forEach((product) => {
+      updates.push({
+        productId: clean(product.id),
+        sku: clean(product.codigo),
+        productName: clean(product.nome),
+        updatedAt: clean(product.data_alteracao),
+        retailPrice: tinyNumber(product.preco || 0),
+        promotionalPrice: tinyNumber(product.preco_promocional || 0)
+      });
+    });
+
+    const totalPages = tinyNumber(retorno.numero_paginas || retorno.total_paginas || 0);
+    if (totalPages && page >= totalPages) break;
+    if (!totalPages || products.length < 100) break;
+  }
+
+  return {
+    since: dataAlteracao,
+    processedAt: formatTinyDate(new Date()),
+    updates
+  };
 }
 
 export async function listTinyStockUpdates({

@@ -27,19 +27,21 @@ import {
   registerLocationBusinessRule,
   updateCustomer
 } from "./nuvemshop.js";
-import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyStockByDeposit, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists, listTinyStockUpdates, searchTinyProducts, tinyDefaultStockSince } from "./tiny.js";
+import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyStockByDeposit, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists, listTinyProductUpdates, listTinyStockUpdates, searchTinyProducts, tinyDefaultStockSince } from "./tiny.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-09-02-storefront-card-price-v1";
+const APP_VERSION = "2026-09-03-storefront-tiny-stability-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
 const TINY_AUTO_SYNC_INTERVAL_MINUTES = Math.max(5, Math.min(1440, Number(process.env.TINY_AUTO_SYNC_INTERVAL_MINUTES || 15)));
 const TINY_PRICE_SYNC_BATCH_SIZE = Math.max(50, Math.min(2000, Number(process.env.TINY_PRICE_SYNC_BATCH_SIZE || 700)));
-const TINY_DISCOVERY_BATCH_SIZE = Math.max(0, Math.min(25, Number(process.env.TINY_DISCOVERY_BATCH_SIZE || 12)));
-const TINY_SKU_INDEX_BATCH_SIZE = Math.max(0, Math.min(80, Number(process.env.TINY_SKU_INDEX_BATCH_SIZE || 25)));
+const TINY_DISCOVERY_BATCH_SIZE = Math.max(0, Math.min(25, Number(process.env.TINY_DISCOVERY_BATCH_SIZE || 3)));
+const TINY_SKU_INDEX_BATCH_SIZE = Math.max(0, Math.min(80, Number(process.env.TINY_SKU_INDEX_BATCH_SIZE || 5)));
+const TINY_SYNC_LOCK_MS = Math.max(15000, Math.min(180000, Number(process.env.TINY_SYNC_LOCK_MS || 45000)));
+const TINY_UPDATES_MAX_PAGES = Math.max(1, Math.min(20, Number(process.env.TINY_UPDATES_MAX_PAGES || 5)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -505,6 +507,7 @@ function tinySyncStatus(job = null) {
     updatedPricesTotal: Number(job.updatedPricesTotal || 0),
     updatedStocksTotal: Number(job.updatedStocksTotal || 0),
     discoveredLinksTotal: Number(job.discoveredLinksTotal || 0),
+    lockedUntil: job.lockUntil || "",
     skuSearchTotal: Array.isArray(job.skuSearchKeys) ? job.skuSearchKeys.length : 0,
     skuSearchProcessed: Number(job.skuSearchCursor || 0),
     skuSearchRemaining: Math.max(
@@ -566,10 +569,12 @@ async function startTinySyncJob({ restart = false } = {}) {
   }
 
   const items = await buildTinyWholesalePriceIndex(priceLists);
+  const itemSkuSet = new Set(items.map((item) => normalizeSku(item.sku)).filter(Boolean));
   const skuSearchKeys = Array.from(
     new Set(
       rulesWithSku
         .filter((rule) => !rule.tinyProductId)
+        .filter((rule) => !itemSkuSet.has(normalizeSku(rule.sku)))
         .map((rule) => tinySkuSearchKey(rule.sku))
         .filter(Boolean)
     )
@@ -598,6 +603,7 @@ async function startTinySyncJob({ restart = false } = {}) {
     errors: [],
     notFound: [],
     stockSince: current.tinyStockUpdatesSince || tinyDefaultStockSince(),
+    productSince: current.tinyProductUpdatesSince || tinyDefaultStockSince(),
     startedAt: now,
     updatedAt: now,
     finishedAt: items.length ? "" : now,
@@ -630,6 +636,20 @@ async function processTinySyncJobBatch() {
   if (job.status === "done") {
     return { status: tinySyncStatus(job), rules: db.rules || [] };
   }
+
+  if (job.lockUntil && new Date(job.lockUntil).getTime() > nowMs) {
+    return { status: tinySyncStatus(job), rules: db.rules || [] };
+  }
+
+  await updateDb((state) => {
+    if (state.tinySyncJob?.id === job.id) {
+      state.tinySyncJob = {
+        ...state.tinySyncJob,
+        lockUntil: new Date(Date.now() + TINY_SYNC_LOCK_MS).toISOString()
+      };
+    }
+    return state;
+  });
 
   const rulesWithSku = (db.rules || []).filter((rule) => normalizeSku(rule.sku));
   const bySku = new Map();
@@ -671,7 +691,69 @@ async function processTinySyncJobBatch() {
   let discoveredLinks = 0;
   let processedSkuSearchKeys = 0;
 
-  for (const searchKey of skuSearchBatch) {
+  allItems.forEach((item) => {
+    const itemSku = normalizeSku(item.sku);
+    if (!itemSku) return;
+    const skuRuleIds = bySku.get(itemSku) || [];
+    skuRuleIds.forEach((ruleId) => {
+      const productId = String(item.productId || "");
+      skuLinksByRuleId.set(ruleId, {
+        productId,
+        productName: item.productName || "",
+        sku: itemSku
+      });
+      if (productId) {
+        if (!byTinyProductId.has(productId)) byTinyProductId.set(productId, []);
+        if (!byTinyProductId.get(productId).includes(ruleId)) {
+          byTinyProductId.get(productId).push(ruleId);
+        }
+      }
+    });
+  });
+
+  let productSync = {
+    updates: [],
+    processedAt: job.productSince || db.tinyProductUpdatesSince || tinyDefaultStockSince(),
+    error: ""
+  };
+  if (!stoppedByRateLimit) {
+    try {
+      productSync = await listTinyProductUpdates({
+        dataAlteracao: job.productSince || db.tinyProductUpdatesSince || tinyDefaultStockSince(),
+        maxPages: TINY_UPDATES_MAX_PAGES
+      });
+      (productSync.updates || []).forEach((product) => {
+        const sku = normalizeSku(product.sku);
+        const productId = String(product.productId || "");
+        if (!sku || !productId) return;
+        const skuRuleIds = bySku.get(sku) || [];
+        skuRuleIds.forEach((ruleId) => {
+          skuLinksByRuleId.set(ruleId, {
+            productId,
+            productName: product.productName || "",
+            sku
+          });
+          if (!byTinyProductId.has(productId)) byTinyProductId.set(productId, []);
+          if (!byTinyProductId.get(productId).includes(ruleId)) {
+            byTinyProductId.get(productId).push(ruleId);
+          }
+        });
+      });
+    } catch (error) {
+      const message = error.message || String(error);
+      if (error.code === "TINY_RATE_LIMIT" || message.toLowerCase().includes("api bloqueada")) {
+        stoppedByRateLimit = true;
+        batchErrors.push({ scope: "product_updates", error: message });
+      }
+      productSync = {
+        updates: [],
+        processedAt: job.productSince || db.tinyProductUpdatesSince || tinyDefaultStockSince(),
+        error: stoppedByRateLimit ? "" : message
+      };
+    }
+  }
+
+  for (const searchKey of stoppedByRateLimit ? [] : skuSearchBatch) {
     if (processedSkuSearchKeys > 0 && Date.now() - startedAtMs >= TINY_SYNC_MAX_RUNTIME_MS) {
       break;
     }
@@ -724,6 +806,7 @@ async function processTinySyncJobBatch() {
         linkedRuleIds.forEach((ruleId) => {
           priceUpdatesByRuleId.set(ruleId, {
             productId: String(item.productId || ""),
+            productName: item.productName || "",
             priceList: item.priceList,
             wholesalePrice: Number(item.wholesalePrice || 0)
           });
@@ -784,7 +867,7 @@ async function processTinySyncJobBatch() {
 
   const nextCursor = currentCursor + processedItems >= allItems.length ? allItems.length : currentCursor + processedItems;
   const finished = !stoppedByRateLimit && skuIndexDone && nextCursor >= allItems.length;
-  const rateLimitedUntil = stoppedByRateLimit ? new Date(Date.now() + 2 * 60 * 1000).toISOString() : "";
+  const rateLimitedUntil = stoppedByRateLimit ? new Date(Date.now() + 10 * 60 * 1000).toISOString() : "";
   const updatedAt = new Date().toISOString();
   let stockSync = { updates: [], processedAt: job.stockSince || tinyDefaultStockSince(), error: "" };
   if (!stoppedByRateLimit && skuIndexDone) {
@@ -825,7 +908,7 @@ async function processTinySyncJobBatch() {
       if (priceUpdate || stockUpdate) updatedRules += 1;
       if (priceUpdate) updatedPrices += 1;
       if (stockUpdate) updatedStocks += 1;
-      if (skuLink) discoveredLinks += 1;
+      if (skuLink && !rule.tinyProductId) discoveredLinks += 1;
       return {
         ...rule,
         productName: rule.productName || priceUpdate?.productName || stockUpdate?.productName || skuLink?.productName || "",
@@ -841,23 +924,31 @@ async function processTinySyncJobBatch() {
     });
 
     state.tinyStockUpdatesSince = stockSync.error ? state.tinyStockUpdatesSince || job.stockSince : stockSync.processedAt;
+    state.tinyProductUpdatesSince = productSync.error ? state.tinyProductUpdatesSince || job.productSince : productSync.processedAt;
     state.tinySyncJob = {
       ...job,
       status: stoppedByRateLimit ? "rate_limited" : finished ? "done" : "processing",
       skuSearchKeys,
       cursor: nextCursor,
       skuSearchCursor: nextSkuSearchCursor,
+      lockUntil: "",
       updatedRulesTotal: Number(job.updatedRulesTotal || 0) + updatedRules,
       updatedPricesTotal: Number(job.updatedPricesTotal || 0) + updatedPrices,
       updatedStocksTotal: Number(job.updatedStocksTotal || 0) + updatedStocks,
       discoveredLinksTotal: Number(job.discoveredLinksTotal || 0) + discoveredLinks,
       skippedItemsTotal: Number(job.skippedItemsTotal || 0) + skippedItems,
-      errors: [...(job.errors || []), ...batchErrors, ...(stockSync.error ? [{ scope: "stock_updates", error: stockSync.error }] : [])].slice(-100),
+      errors: [
+        ...(job.errors || []),
+        ...batchErrors,
+        ...(productSync.error ? [{ scope: "product_updates", error: productSync.error }] : []),
+        ...(stockSync.error ? [{ scope: "stock_updates", error: stockSync.error }] : [])
+      ].slice(-100),
       notFound: [...(job.notFound || []), ...batchNotFound].slice(-100),
       updatedAt,
       finishedAt: finished ? updatedAt : "",
       rateLimitedUntil,
       stockSince: state.tinyStockUpdatesSince,
+      productSince: state.tinyProductUpdatesSince,
       lastMessage: stoppedByRateLimit
         ? "Tiny bloqueou temporariamente a API. A sincronizacao vai continuar automaticamente depois da pausa."
         : finished
