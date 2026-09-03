@@ -911,3 +911,37 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-08-28-storefront-name-fallback-v1`
+
+## 2026-09-02 - Sincronizacao Tiny com estimativa de milhares de minutos
+
+**Erro**
+
+A sincronizacao do Tiny mostrava estimativas absurdas, como mais de 4 mil minutos restantes, para processar cerca de 3,4 mil itens de preco.
+
+**Onde apareceu**
+
+- Painel `Produtos em atacado`.
+- Botao `Sincronizar Tiny`.
+- Aviso de progresso da sincronizacao Tiny.
+
+**Motivo**
+
+O fluxo estava lento porque ainda dependia de descobertas item a item para relacionar produtos do Tiny com regras da Nuvemshop quando o `tinyProductId` nao estava salvo. Isso consumia muitas chamadas da API do Tiny e acionava bloqueios temporarios. A interface tambem calculava uma estimativa baseada nesse ritmo lento, entao exibia um tempo restante irreal e assustador.
+
+**Como corrigimos**
+
+- Precos de listas atacado agora atualizam direto por `tinyProductId` quando o vinculo ja existe, em lotes maiores.
+- Itens ainda nao vinculados primeiro tentam criar um indice por prefixo de SKU, reduzindo chamadas em produtos com muitas variacoes, como `199-1`, `199-2` e `199-3`.
+- Quando o indice por SKU nao encontra o produto, o app ainda faz uma descoberta pequena por ciclo, so para completar o vinculo sem derrubar a API.
+- O processamento passou a ter duas fases: primeiro conclui o indice de vinculos Tiny, depois percorre os itens de preco. Isso evita passar por uma lista de preco antes do app saber qual SKU da Nuvemshop corresponde ao produto do Tiny.
+- Estoque passou a usar a fila de atualizacoes de estoque do Tiny, em vez de varrer produto por produto quando possivel.
+- A tela deixou de exibir estimativa em minutos e passou a mostrar progresso real: itens conferidos, precos atualizados, estoques atualizados e vinculos Tiny conferidos.
+- O painel aberto processa lotes a cada 15 segundos, e o Vercel tambem chama o cron a cada 5 minutos para continuar mesmo com a aba fechada.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-09-02-fast-tiny-sync-v1`

@@ -44,6 +44,25 @@ function tinyStockValue(source = {}) {
   return 0;
 }
 
+function formatTinyDate(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    pad(date.getDate()),
+    pad(date.getMonth() + 1),
+    date.getFullYear()
+  ].join("/") + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function chooseDeposit(deposits, depositName) {
+  const target = normalizeName(depositName);
+  const exactDeposit = deposits.find((item) => normalizeName(item.nome) === target);
+  const partialDeposit = deposits.find((item) => {
+    const name = normalizeName(item.nome);
+    return name && target && (name.includes(target) || target.includes(name));
+  });
+  return exactDeposit || partialDeposit || null;
+}
+
 function getToken() {
   const token = clean(process.env.TINY_API_TOKEN);
   if (!token) {
@@ -163,6 +182,35 @@ export async function findTinyProductBySku(sku) {
   return exact || null;
 }
 
+export async function searchTinyProducts({
+  search,
+  maxPages = 3
+} = {}) {
+  const query = clean(search);
+  if (!query) return [];
+
+  const products = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const retorno = await tinyRequest("produtos.pesquisa.php", {
+      pesquisa: query,
+      pagina: page,
+      situacao: "A"
+    });
+    const pageProducts = unwrapList(retorno.produtos, "produto");
+    products.push(...pageProducts);
+
+    const totalPages = tinyNumber(retorno.numero_paginas || retorno.total_paginas || 0);
+    if (totalPages && page >= totalPages) break;
+    if (!totalPages || pageProducts.length < 100) break;
+  }
+
+  return products.map((product) => ({
+    id: clean(product.id),
+    sku: clean(product.codigo),
+    name: clean(product.nome)
+  }));
+}
+
 export async function getTinyWholesalePrice({ productId, priceListId }) {
   if (!productId || !priceListId) return null;
 
@@ -231,6 +279,55 @@ export async function buildTinyWholesalePriceIndex(priceLists) {
   return items;
 }
 
+export function tinyDefaultStockSince() {
+  const date = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return formatTinyDate(date);
+}
+
+export async function listTinyStockUpdates({
+  dataAlteracao = tinyDefaultStockSince(),
+  depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado",
+  maxPages = 20
+} = {}) {
+  const updates = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const retorno = await tinyRequest("lista.atualizacoes.estoque", {
+      dataAlteracao,
+      pagina: page
+    });
+    const products = unwrapList(retorno.produtos, "produto");
+    products.forEach((product) => {
+      const deposits = unwrapList(product.depositos, "deposito");
+      const deposit = chooseDeposit(deposits, depositName);
+      updates.push({
+        productId: clean(product.id),
+        sku: clean(product.codigo),
+        productName: clean(product.nome),
+        updatedAt: clean(product.data_alteracao),
+        totalStock: tinyStockValue(product),
+        stock: deposit ? tinyStockValue(deposit) : tinyStockValue(product),
+        stockDeposit: deposit
+          ? {
+              name: clean(deposit.nome),
+              stock: tinyStockValue(deposit),
+              ignored: clean(deposit.desconsiderar)
+            }
+          : null
+      });
+    });
+
+    const totalPages = tinyNumber(retorno.numero_paginas || retorno.total_paginas || 0);
+    if (totalPages && page >= totalPages) break;
+    if (!totalPages || products.length < 100) break;
+  }
+
+  return {
+    since: dataAlteracao,
+    processedAt: formatTinyDate(new Date()),
+    updates
+  };
+}
+
 export async function getTinyStockByDeposit({
   productId,
   depositName = process.env.TINY_STOCK_DEPOSIT_NAME || "Atacado"
@@ -240,13 +337,7 @@ export async function getTinyStockByDeposit({
   const retorno = await tinyRequest("produto.obter.estoque.php", { id: productId });
   const product = retorno.produto || {};
   const deposits = unwrapList(product.depositos, "deposito");
-  const target = normalizeName(depositName);
-  const exactDeposit = deposits.find((item) => normalizeName(item.nome) === target);
-  const partialDeposit = deposits.find((item) => {
-    const name = normalizeName(item.nome);
-    return name && target && (name.includes(target) || target.includes(name));
-  });
-  const deposit = exactDeposit || partialDeposit || null;
+  const deposit = chooseDeposit(deposits, depositName);
   const stock = deposit ? tinyStockValue(deposit) : tinyStockValue(product);
 
   return {

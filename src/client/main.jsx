@@ -79,16 +79,19 @@ function currency(value) {
 
 function tinyStatusText(status) {
   if (!status || status.status === "idle") return "Nenhuma sincronização do Tiny em andamento.";
+  const prices = status.updatedPricesTotal ?? status.updatedRulesTotal ?? 0;
+  const stocks = status.updatedStocksTotal ?? 0;
+  const discovered = status.discoveredLinksTotal ?? 0;
+  if (status.skuSearchRemaining > 0 && status.processedItems === 0) {
+    return `Indexando vínculos com o Tiny: ${status.skuSearchProcessed || 0}/${status.skuSearchTotal || 0} grupos de SKU. ${discovered} vínculos encontrados.`;
+  }
   if (status.status === "done") {
-    return `Finalizada: ${status.updatedRulesTotal || 0} variações atualizadas.`;
+    return `Finalizada: ${prices} preços e ${stocks} estoques atualizados. ${discovered} vínculos Tiny conferidos.`;
   }
   if (status.status === "rate_limited") {
-    return "Tiny pausou a API temporariamente. O app vai tentar continuar automaticamente.";
+    return `Tiny pausou a API temporariamente. O app vai continuar automaticamente. ${status.processedItems || 0}/${status.totalItems || 0} itens conferidos.`;
   }
-  const estimate = status.estimatedMinutesRemaining
-    ? ` Estimativa: ${status.estimatedMinutesRemaining} min restantes.`
-    : "";
-  return `Em andamento: ${status.processedItems || 0} de ${status.totalItems || 0} itens de preço processados.${estimate}`;
+  return `Em andamento: ${status.processedItems || 0}/${status.totalItems || 0} itens de preço conferidos. ${prices} preços e ${stocks} estoques atualizados.`;
 }
 
 function formToObject(form) {
@@ -164,7 +167,7 @@ function App() {
       } catch (error) {
         setNotice(error.message || "Não foi possível atualizar a sincronização do Tiny.");
       }
-    }, 60000);
+    }, 15000);
 
     return () => window.clearInterval(timer);
   }, [adminReady, tinySyncStatus?.status]);

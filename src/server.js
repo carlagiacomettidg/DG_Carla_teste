@@ -27,16 +27,19 @@ import {
   registerLocationBusinessRule,
   updateCustomer
 } from "./nuvemshop.js";
-import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyStockByDeposit, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists } from "./tiny.js";
+import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyStockByDeposit, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists, listTinyStockUpdates, searchTinyProducts, tinyDefaultStockSince } from "./tiny.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-08-28-storefront-name-fallback-v1";
+const APP_VERSION = "2026-09-02-fast-tiny-sync-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
 const TINY_AUTO_SYNC_INTERVAL_MINUTES = Math.max(5, Math.min(1440, Number(process.env.TINY_AUTO_SYNC_INTERVAL_MINUTES || 15)));
+const TINY_PRICE_SYNC_BATCH_SIZE = Math.max(50, Math.min(2000, Number(process.env.TINY_PRICE_SYNC_BATCH_SIZE || 700)));
+const TINY_DISCOVERY_BATCH_SIZE = Math.max(0, Math.min(25, Number(process.env.TINY_DISCOVERY_BATCH_SIZE || 12)));
+const TINY_SKU_INDEX_BATCH_SIZE = Math.max(0, Math.min(80, Number(process.env.TINY_SKU_INDEX_BATCH_SIZE || 25)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
   "https://dg-venus-modas.vercel.app"
@@ -464,6 +467,15 @@ function tinySyncStatus(job = null) {
     itemsPerMinute,
     estimatedMinutesRemaining,
     updatedRulesTotal: Number(job.updatedRulesTotal || 0),
+    updatedPricesTotal: Number(job.updatedPricesTotal || 0),
+    updatedStocksTotal: Number(job.updatedStocksTotal || 0),
+    discoveredLinksTotal: Number(job.discoveredLinksTotal || 0),
+    skuSearchTotal: Array.isArray(job.skuSearchKeys) ? job.skuSearchKeys.length : 0,
+    skuSearchProcessed: Number(job.skuSearchCursor || 0),
+    skuSearchRemaining: Math.max(
+      0,
+      (Array.isArray(job.skuSearchKeys) ? job.skuSearchKeys.length : 0) - Number(job.skuSearchCursor || 0)
+    ),
     skippedItemsTotal: Number(job.skippedItemsTotal || 0),
     errorsTotal: Array.isArray(job.errors) ? job.errors.length : 0,
     notFoundTotal: Array.isArray(job.notFound) ? job.notFound.length : 0,
@@ -485,6 +497,14 @@ function shouldAutoStartTinySync(job = null) {
   const lastRunMs = Math.max(finishedAtMs, updatedAtMs);
   if (!lastRunMs) return true;
   return Date.now() - lastRunMs >= TINY_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1000;
+}
+
+function tinySkuSearchKey(sku) {
+  const value = normalizeSku(sku);
+  if (!value) return "";
+  const base = value.split(/[-_/.\s]/).find(Boolean) || value;
+  if (base.length >= 3) return base;
+  return value.slice(0, 6);
 }
 
 async function startTinySyncJob({ restart = false } = {}) {
@@ -511,6 +531,14 @@ async function startTinySyncJob({ restart = false } = {}) {
   }
 
   const items = await buildTinyWholesalePriceIndex(priceLists);
+  const skuSearchKeys = Array.from(
+    new Set(
+      rulesWithSku
+        .filter((rule) => !rule.tinyProductId)
+        .map((rule) => tinySkuSearchKey(rule.sku))
+        .filter(Boolean)
+    )
+  );
   const now = new Date().toISOString();
   const job = {
     id: randomUUID(),
@@ -523,12 +551,18 @@ async function startTinySyncJob({ restart = false } = {}) {
       adjustmentPercent: Number(list.acrescimo_desconto || 0)
     })),
     items,
+    skuSearchKeys,
+    skuSearchCursor: 0,
     cursor: 0,
     totalItems: items.length,
     updatedRulesTotal: 0,
+    updatedPricesTotal: 0,
+    updatedStocksTotal: 0,
+    discoveredLinksTotal: 0,
     skippedItemsTotal: 0,
     errors: [],
     notFound: [],
+    stockSince: current.tinyStockUpdatesSince || tinyDefaultStockSince(),
     startedAt: now,
     updatedAt: now,
     finishedAt: items.length ? "" : now,
@@ -564,52 +598,138 @@ async function processTinySyncJobBatch() {
 
   const rulesWithSku = (db.rules || []).filter((rule) => normalizeSku(rule.sku));
   const bySku = new Map();
+  const byTinyProductId = new Map();
   rulesWithSku.forEach((rule) => {
     const sku = normalizeSku(rule.sku);
     if (!bySku.has(sku)) bySku.set(sku, []);
     bySku.get(sku).push(rule.id);
+    if (rule.tinyProductId) {
+      const tinyProductId = String(rule.tinyProductId);
+      if (!byTinyProductId.has(tinyProductId)) byTinyProductId.set(tinyProductId, []);
+      byTinyProductId.get(tinyProductId).push(rule.id);
+    }
   });
 
   const allItems = job.items;
   const currentCursor = Math.max(0, Math.min(Number(job.cursor || 0), allItems.length));
-  const batchItems = allItems.slice(currentCursor, currentCursor + TINY_SYNC_BATCH_SIZE);
+  const batchItems = allItems.slice(currentCursor, currentCursor + TINY_PRICE_SYNC_BATCH_SIZE);
+  const skuSearchKeys = Array.isArray(job.skuSearchKeys)
+    ? job.skuSearchKeys
+    : Array.from(
+        new Set(
+          rulesWithSku
+            .filter((rule) => !rule.tinyProductId)
+            .map((rule) => tinySkuSearchKey(rule.sku))
+            .filter(Boolean)
+        )
+      );
+  const skuSearchCursor = Math.max(0, Math.min(Number(job.skuSearchCursor || 0), skuSearchKeys.length));
+  const skuSearchBatch = skuSearchKeys.slice(skuSearchCursor, skuSearchCursor + TINY_SKU_INDEX_BATCH_SIZE);
   const startedAtMs = Date.now();
-  const tinyBySku = new Map();
+  const priceUpdatesByRuleId = new Map();
+  const skuLinksByRuleId = new Map();
   const batchErrors = [];
   const batchNotFound = [];
   let stoppedByRateLimit = false;
   let skippedItems = 0;
   let processedItems = 0;
+  let discoveredLinks = 0;
+  let processedSkuSearchKeys = 0;
 
-  for (const item of batchItems) {
+  for (const searchKey of skuSearchBatch) {
+    if (processedSkuSearchKeys > 0 && Date.now() - startedAtMs >= TINY_SYNC_MAX_RUNTIME_MS) {
+      break;
+    }
+
+    try {
+      const products = await searchTinyProducts({ search: searchKey, maxPages: 2 });
+      products.forEach((product) => {
+        const sku = normalizeSku(product.sku);
+        const skuRuleIds = sku ? bySku.get(sku) || [] : [];
+        skuRuleIds.forEach((ruleId) => {
+          const tinyProductId = String(product.id || "");
+          skuLinksByRuleId.set(ruleId, {
+            productId: tinyProductId,
+            productName: product.name || "",
+            sku
+          });
+          if (tinyProductId) {
+            if (!byTinyProductId.has(tinyProductId)) byTinyProductId.set(tinyProductId, []);
+            if (!byTinyProductId.get(tinyProductId).includes(ruleId)) {
+              byTinyProductId.get(tinyProductId).push(ruleId);
+            }
+          }
+        });
+      });
+      processedSkuSearchKeys += 1;
+    } catch (error) {
+      const message = error.message || "";
+      if (error.code === "TINY_RATE_LIMIT" || message.toLowerCase().includes("api bloqueada")) {
+        stoppedByRateLimit = true;
+        batchErrors.push({ scope: "sku_index", searchKey, error: message });
+        break;
+      }
+      batchErrors.push({ scope: "sku_index", searchKey, error: message });
+      processedSkuSearchKeys += 1;
+    }
+  }
+
+  const nextSkuSearchCursor = Math.min(skuSearchKeys.length, skuSearchCursor + processedSkuSearchKeys);
+  const skuIndexDone = nextSkuSearchCursor >= skuSearchKeys.length;
+
+  for (const item of skuIndexDone ? batchItems : []) {
+    if (stoppedByRateLimit) break;
     if (processedItems > 0 && Date.now() - startedAtMs >= TINY_SYNC_MAX_RUNTIME_MS) {
       break;
     }
 
     try {
-      if (TINY_SYNC_ITEM_DELAY_MS > 0) await wait(TINY_SYNC_ITEM_DELAY_MS);
-      const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName: job.depositName });
-      const sku = normalizeSku(stockData?.sku);
-      if (!sku || !bySku.has(sku)) {
+      const linkedRuleIds = byTinyProductId.get(String(item.productId || "")) || [];
+      if (linkedRuleIds.length) {
+        linkedRuleIds.forEach((ruleId) => {
+          priceUpdatesByRuleId.set(ruleId, {
+            productId: String(item.productId || ""),
+            priceList: item.priceList,
+            wholesalePrice: Number(item.wholesalePrice || 0)
+          });
+        });
+        processedItems += 1;
+        continue;
+      }
+
+      if (discoveredLinks >= TINY_DISCOVERY_BATCH_SIZE) {
         skippedItems += 1;
         processedItems += 1;
         continue;
       }
-      tinyBySku.set(sku, {
-        sku,
-        productId: String(item.productId || ""),
-        productName: stockData?.productName || "",
-        priceList: item.priceList,
-        wholesalePrice: Number(item.wholesalePrice || 0),
-        wholesaleStock: Number(stockData?.stock || 0),
-        stockDeposit: stockData?.deposit
-          ? {
-              name: cleanString(stockData.deposit.nome),
-              stock: Number(stockData.stock || 0),
-              ignored: cleanString(stockData.deposit.desconsiderar)
-            }
-          : null
+
+      if (TINY_SYNC_ITEM_DELAY_MS > 0) await wait(TINY_SYNC_ITEM_DELAY_MS);
+      const stockData = await getTinyStockByDeposit({ productId: item.productId, depositName: job.depositName });
+      const sku = normalizeSku(stockData?.sku);
+      const skuRuleIds = sku ? bySku.get(sku) || [] : [];
+      if (!sku || !skuRuleIds.length) {
+        skippedItems += 1;
+        processedItems += 1;
+        continue;
+      }
+      skuRuleIds.forEach((ruleId) => {
+        priceUpdatesByRuleId.set(ruleId, {
+          sku,
+          productId: String(item.productId || ""),
+          productName: stockData?.productName || "",
+          priceList: item.priceList,
+          wholesalePrice: Number(item.wholesalePrice || 0),
+          wholesaleStock: Number(stockData?.stock || 0),
+          stockDeposit: stockData?.deposit
+            ? {
+                name: cleanString(stockData.deposit.nome),
+                stock: Number(stockData.stock || 0),
+                ignored: cleanString(stockData.deposit.desconsiderar)
+              }
+            : null
+        });
       });
+      discoveredLinks += 1;
       processedItems += 1;
     } catch (error) {
       const message = error.message || "";
@@ -628,46 +748,88 @@ async function processTinySyncJobBatch() {
   }
 
   const nextCursor = currentCursor + processedItems >= allItems.length ? allItems.length : currentCursor + processedItems;
-  const finished = !stoppedByRateLimit && nextCursor >= allItems.length;
+  const finished = !stoppedByRateLimit && skuIndexDone && nextCursor >= allItems.length;
   const rateLimitedUntil = stoppedByRateLimit ? new Date(Date.now() + 2 * 60 * 1000).toISOString() : "";
   const updatedAt = new Date().toISOString();
+  let stockSync = { updates: [], processedAt: job.stockSince || tinyDefaultStockSince(), error: "" };
+  if (!stoppedByRateLimit && skuIndexDone) {
+    try {
+      stockSync = await listTinyStockUpdates({
+        dataAlteracao: job.stockSince || db.tinyStockUpdatesSince || tinyDefaultStockSince(),
+        depositName: job.depositName,
+        maxPages: 5
+      });
+    } catch (error) {
+      stockSync = {
+        updates: [],
+        processedAt: job.stockSince || db.tinyStockUpdatesSince || tinyDefaultStockSince(),
+        error: error.message || String(error)
+      };
+    }
+  }
 
   const next = await updateDb((state) => {
     let updatedRules = 0;
-    state.rules = (state.rules || []).map((rule) => {
-      const tinyProduct = tinyBySku.get(normalizeSku(rule.sku));
-      if (!tinyProduct) return rule;
-      updatedRules += 1;
+    let updatedPrices = 0;
+    let updatedStocks = 0;
+    const stockBySku = new Map();
+    const stockByTinyProductId = new Map();
+    (stockSync.updates || []).forEach((item) => {
+      if (item.sku) stockBySku.set(normalizeSku(item.sku), item);
+      if (item.productId) stockByTinyProductId.set(String(item.productId), item);
+    });
 
+    state.rules = (state.rules || []).map((rule) => {
+      const priceUpdate = priceUpdatesByRuleId.get(rule.id);
+      const skuLink = skuLinksByRuleId.get(rule.id);
+      const stockUpdate =
+        stockByTinyProductId.get(String(skuLink?.productId || rule.tinyProductId || "")) ||
+        stockBySku.get(normalizeSku(rule.sku));
+      if (!priceUpdate && !stockUpdate && !skuLink) return rule;
+
+      if (priceUpdate || stockUpdate) updatedRules += 1;
+      if (priceUpdate) updatedPrices += 1;
+      if (stockUpdate) updatedStocks += 1;
+      if (skuLink) discoveredLinks += 1;
       return {
         ...rule,
-        wholesalePrice: money(tinyProduct.wholesalePrice),
-        wholesaleStock: Number(tinyProduct.wholesaleStock || 0),
-        tinyProductId: tinyProduct.productId,
-        tinyPriceListId: tinyProduct.priceList.id,
-        tinyPriceListName: tinyProduct.priceList.name,
-        tinyStockDepositName: tinyProduct.stockDeposit?.name || job.depositName,
+        productName: rule.productName || priceUpdate?.productName || stockUpdate?.productName || skuLink?.productName || "",
+        wholesalePrice: priceUpdate ? money(priceUpdate.wholesalePrice) : rule.wholesalePrice,
+        wholesaleStock: stockUpdate ? Number(stockUpdate.stock || 0) : priceUpdate?.wholesaleStock !== undefined ? Number(priceUpdate.wholesaleStock || 0) : Number(rule.wholesaleStock || 0),
+        tinyProductId: priceUpdate?.productId || stockUpdate?.productId || skuLink?.productId || rule.tinyProductId || "",
+        tinyPriceListId: priceUpdate?.priceList?.id || rule.tinyPriceListId || "",
+        tinyPriceListName: priceUpdate?.priceList?.name || rule.tinyPriceListName || "",
+        tinyStockDepositName: stockUpdate?.stockDeposit?.name || priceUpdate?.stockDeposit?.name || rule.tinyStockDepositName || job.depositName,
         tinySyncedAt: updatedAt,
         enabled: rule.enabled !== false
       };
     });
 
+    state.tinyStockUpdatesSince = stockSync.error ? state.tinyStockUpdatesSince || job.stockSince : stockSync.processedAt;
     state.tinySyncJob = {
       ...job,
       status: stoppedByRateLimit ? "rate_limited" : finished ? "done" : "processing",
+      skuSearchKeys,
       cursor: nextCursor,
+      skuSearchCursor: nextSkuSearchCursor,
       updatedRulesTotal: Number(job.updatedRulesTotal || 0) + updatedRules,
+      updatedPricesTotal: Number(job.updatedPricesTotal || 0) + updatedPrices,
+      updatedStocksTotal: Number(job.updatedStocksTotal || 0) + updatedStocks,
+      discoveredLinksTotal: Number(job.discoveredLinksTotal || 0) + discoveredLinks,
       skippedItemsTotal: Number(job.skippedItemsTotal || 0) + skippedItems,
-      errors: [...(job.errors || []), ...batchErrors].slice(-100),
+      errors: [...(job.errors || []), ...batchErrors, ...(stockSync.error ? [{ scope: "stock_updates", error: stockSync.error }] : [])].slice(-100),
       notFound: [...(job.notFound || []), ...batchNotFound].slice(-100),
       updatedAt,
       finishedAt: finished ? updatedAt : "",
       rateLimitedUntil,
+      stockSince: state.tinyStockUpdatesSince,
       lastMessage: stoppedByRateLimit
         ? "Tiny bloqueou temporariamente a API. A sincronizacao vai continuar automaticamente depois da pausa."
         : finished
           ? "Sincronizacao do Tiny finalizada."
-          : `Lote processado. Faltam ${Math.max(0, allItems.length - nextCursor)} itens de preco.`
+          : skuIndexDone
+            ? `Lote rapido processado. Faltam ${Math.max(0, allItems.length - nextCursor)} itens de preco.`
+            : `Indexando vinculos por SKU. Faltam ${Math.max(0, skuSearchKeys.length - nextSkuSearchCursor)} grupos de SKU.`
     };
 
     return state;
