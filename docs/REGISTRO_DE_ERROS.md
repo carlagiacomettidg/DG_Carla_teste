@@ -1039,3 +1039,33 @@ Corrigido e em validacao.
 **Versao**
 
 `2026-09-03-storefront-tiny-stability-v1`
+
+## 2026-09-03 - Vitrine nao carregava o script de atacado
+
+**Erro**
+
+Mesmo depois do backend retornar `wholesale: true` e preco atacado correto para o cliente Carla, a busca da loja continuava exibindo preco de varejo.
+
+**Onde apareceu**
+
+- Busca da vitrine em `calca mol bebe`.
+- Header mostrando cliente logado, mas cards ainda com preco normal da Nuvemshop.
+
+**Motivo**
+
+Ao inspecionar a pagina real da loja, nao existia `window.DG_WHOLESALE_LOGIN_VERSION`, `window.DG_WHOLESALE_DEBUG` nem nenhum script `wholesale-login.js` carregado. Portanto a loja nao estava executando o script da vitrine. O problema nao era mais a regra de preco nem o cadastro atacado; era a ausencia do script no storefront.
+
+**Como corrigimos**
+
+- Adicionamos endpoints administrativos para verificar scripts associados na Nuvemshop.
+- Adicionamos endpoint para associar o script via API quando `NUVEMSHOP_STOREFRONT_SCRIPT_ID` estiver configurado.
+- Adicionamos no painel, em `Configuracoes`, um bloco `Script da vitrine` com botoes para verificar e associar o script.
+- Documentamos `NUVEMSHOP_STOREFRONT_SCRIPT_ID` no `.env.example`.
+
+**Status**
+
+Corrigido no app. Ainda depende de o script existir/estar ativo no Portal de Parceiros da Nuvemshop ou de configurar `NUVEMSHOP_STOREFRONT_SCRIPT_ID` na Vercel para associacao manual.
+
+**Versao**
+
+`2026-09-03-storefront-script-install-v1`

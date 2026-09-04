@@ -24,7 +24,9 @@ import {
   listAllCustomers,
   listAllProducts,
   listLocations,
+  listStorefrontScripts,
   registerLocationBusinessRule,
+  associateStorefrontScript,
   updateCustomer
 } from "./nuvemshop.js";
 import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, getTinyStatus, getTinyStockByDeposit, getTinyWholesaleBySku, getTinyWholesaleBySkuFromPriceLists, listTinyProductUpdates, listTinyStockUpdates, searchTinyProducts, tinyDefaultStockSince } from "./tiny.js";
@@ -32,7 +34,7 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-09-03-storefront-tiny-stability-v1";
+const APP_VERSION = "2026-09-03-storefront-script-install-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
@@ -460,6 +462,44 @@ function mapStorefrontProductSummary(rules) {
       }
     });
   return Array.from(byProduct.values());
+}
+
+function mapStorefrontScriptStatus(response) {
+  const scripts = Array.isArray(response?.result) ? response.result : Array.isArray(response) ? response : [];
+  const expectedScriptId = cleanString(process.env.NUVEMSHOP_STOREFRONT_SCRIPT_ID);
+  const expectedUrl = `${publicAppUrl().replace(/\/+$/, "")}/wholesale-login.js`;
+  const matched = scripts.find((script) => {
+    const idMatches = expectedScriptId && String(script.id || script.script_id || "") === expectedScriptId;
+    const src = cleanString(script.current_version?.src || script.draft_version?.src || script.src);
+    const name = normalizeComparable(`${script.name || ""} ${script.handle || ""}`);
+    return idMatches || src.includes("wholesale-login") || src.includes("dg-venus-modas") || name.includes("atacado");
+  });
+  return {
+    configuredScriptId: expectedScriptId,
+    expectedUrl,
+    installed: Boolean(matched),
+    scripts: scripts.map((script) => ({
+      id: String(script.id || ""),
+      name: cleanString(script.name),
+      status: cleanString(script.status),
+      location: cleanString(script.location),
+      event: cleanString(script.event),
+      autoInstall: script.is_auto_install === true,
+      currentSrc: cleanString(script.current_version?.src || "")
+    })),
+    matched: matched
+      ? {
+          id: String(matched.id || ""),
+          name: cleanString(matched.name),
+          status: cleanString(matched.status),
+          location: cleanString(matched.location),
+          event: cleanString(matched.event),
+          autoInstall: matched.is_auto_install === true,
+          currentSrc: cleanString(matched.current_version?.src || "")
+        }
+      : null,
+    manualSnippet: `<script src="${expectedUrl}" defer></script>`
+  };
 }
 
 async function listNuvemshopWholesaleCustomers(db) {
@@ -1198,6 +1238,50 @@ async function handleApi(req, res) {
     try {
       const db = await readDb();
       return sendJson(req, res, 200, { ok: true, status: tinySyncStatus(db.tinySyncJob || null) });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
+  }
+
+  if (isRoute(req, "GET", "/api/storefront-script/status")) {
+    try {
+      const db = await readDb();
+      if (!db.store.id || !db.store.accessToken) {
+        return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
+      }
+      const response = await listStorefrontScripts({
+        storeId: db.store.id,
+        accessToken: db.store.accessToken
+      });
+      return sendJson(req, res, 200, { ok: true, ...mapStorefrontScriptStatus(response) });
+    } catch (error) {
+      return sendJson(req, res, 400, { error: error.message });
+    }
+  }
+
+  if (isRoute(req, "POST", "/api/storefront-script/associate")) {
+    try {
+      const scriptId = cleanString(process.env.NUVEMSHOP_STOREFRONT_SCRIPT_ID);
+      if (!scriptId) {
+        return sendJson(req, res, 400, {
+          error: "NUVEMSHOP_STOREFRONT_SCRIPT_ID não configurado. Informe o ID do script criado no Portal de Parceiros da Nuvemshop."
+        });
+      }
+      const db = await readDb();
+      if (!db.store.id || !db.store.accessToken) {
+        return sendJson(req, res, 400, { error: "Loja ainda não conectada. Autorize o app na Nuvemshop." });
+      }
+      await associateStorefrontScript({
+        storeId: db.store.id,
+        accessToken: db.store.accessToken,
+        scriptId,
+        queryParams: {}
+      });
+      const response = await listStorefrontScripts({
+        storeId: db.store.id,
+        accessToken: db.store.accessToken
+      });
+      return sendJson(req, res, 200, { ok: true, ...mapStorefrontScriptStatus(response) });
     } catch (error) {
       return sendJson(req, res, 400, { error: error.message });
     }

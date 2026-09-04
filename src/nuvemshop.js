@@ -1,4 +1,5 @@
 const API_BASE = "https://api.nuvemshop.com.br/v1";
+const MODERN_API_BASE = "https://api.tiendanube.com/2025-03";
 const AUTH_BASE = "https://www.nuvemshop.com.br/apps";
 
 function env(name, fallback = "") {
@@ -74,6 +75,67 @@ export async function nuvemshopRequest({ storeId, accessToken, path, method = "G
 
   if (response.status === 204) return null;
   return response.json();
+}
+
+export async function nuvemshopModernRequest({ storeId, accessToken, path, method = "GET", body, timeoutMs = 15000 }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(`${MODERN_API_BASE}/${storeId}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": env("NUVEMSHOP_USER_AGENT", "VenosModasApp/0.1")
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Nuvemshop API demorou para responder em ${path}. Tente novamente em alguns instantes.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (response.status === 401) {
+      throw new Error("Token de acesso da Nuvemshop inválido. Reinstale ou autorize novamente o app na loja Vênus Modas.");
+    }
+    if (response.status === 403) {
+      throw new Error(`Nuvemshop API 403 em ${path}: verifique se o app possui o escopo necessario. ${text}`);
+    }
+    throw new Error(`Nuvemshop API ${response.status}: ${text}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+export function listStorefrontScripts({ storeId, accessToken }) {
+  return nuvemshopModernRequest({
+    storeId,
+    accessToken,
+    path: "/scripts?page=1&per_page=50"
+  });
+}
+
+export function associateStorefrontScript({ storeId, accessToken, scriptId, queryParams = {} }) {
+  return nuvemshopModernRequest({
+    storeId,
+    accessToken,
+    path: "/scripts",
+    method: "POST",
+    body: {
+      script_id: Number(scriptId),
+      query_params: JSON.stringify(queryParams || {})
+    }
+  });
 }
 
 export function registerLocationBusinessRule({ storeId, accessToken, callbackUrl }) {

@@ -116,6 +116,8 @@ function App() {
   const [visibleRuleCount, setVisibleRuleCount] = useState(80);
   const [tinyLoading, setTinyLoading] = useState(false);
   const [tinySyncStatus, setTinySyncStatus] = useState(null);
+  const [scriptStatus, setScriptStatus] = useState(null);
+  const [scriptLoading, setScriptLoading] = useState(false);
   const [adminReady, setAdminReady] = useState(false);
   const [adminAuthError, setAdminAuthError] = useState("");
 
@@ -409,6 +411,34 @@ function App() {
   async function deleteCustomer(id) {
     const nextCustomers = await api(`/api/wholesale-customers/${id}`, { method: "DELETE" });
     setCustomers(nextCustomers);
+  }
+
+  async function checkStorefrontScript() {
+    setScriptLoading(true);
+    setNotice("Verificando script da vitrine...");
+    try {
+      const result = await api("/api/storefront-script/status");
+      setScriptStatus(result);
+      setNotice(result.installed ? "Script da vitrine encontrado na Nuvemshop." : "Script da vitrine não encontrado na Nuvemshop.");
+    } catch (error) {
+      setNotice(error.message || "Não foi possível verificar o script da vitrine.");
+    } finally {
+      setScriptLoading(false);
+    }
+  }
+
+  async function associateStorefrontScript() {
+    setScriptLoading(true);
+    setNotice("Associando script da vitrine...");
+    try {
+      const result = await api("/api/storefront-script/associate", { method: "POST", body: JSON.stringify({}) });
+      setScriptStatus(result);
+      setNotice(result.installed ? "Script da vitrine associado com sucesso." : "Associação enviada, mas o script ainda não apareceu na listagem.");
+    } catch (error) {
+      setNotice(error.message || "Não foi possível associar o script da vitrine.");
+    } finally {
+      setScriptLoading(false);
+    }
   }
 
   async function simulateCheckout() {
@@ -835,6 +865,26 @@ function App() {
                 <RefreshCw size={16} />
                 {locationsLoading ? "Buscando..." : "Atualizar CDs"}
               </button>
+            </div>
+
+            <div className="notice">
+              <strong>Script da vitrine: </strong>
+              {scriptStatus
+                ? scriptStatus.installed
+                  ? `instalado (${scriptStatus.matched?.name || scriptStatus.matched?.id || "script ativo"})`
+                  : "não encontrado na Nuvemshop"
+                : "ainda não verificado"}
+              <div className="inline-actions">
+                <button type="button" onClick={checkStorefrontScript} disabled={scriptLoading}>
+                  Verificar script
+                </button>
+                <button type="button" onClick={associateStorefrontScript} disabled={scriptLoading}>
+                  Associar script
+                </button>
+              </div>
+              {scriptStatus?.manualSnippet && !scriptStatus.installed && (
+                <code>{scriptStatus.manualSnippet}</code>
+              )}
             </div>
 
             <form className="form-grid" onSubmit={saveSettings}>
