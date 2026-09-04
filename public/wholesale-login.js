@@ -1,7 +1,7 @@
 (function () {
   const APP_URL = "https://dg-venus-modas.vercel.app";
   const STORE_NAME = "Vênus Modas";
-  const SCRIPT_VERSION = "2026-09-03-storefront-script-install-v1";
+  const SCRIPT_VERSION = "2026-09-03-tiny-rate-script-guidance-v1";
   window.DG_WHOLESALE_LOGIN_VERSION = SCRIPT_VERSION;
   window.DG_WHOLESALE_DEBUG = {
     version: SCRIPT_VERSION,

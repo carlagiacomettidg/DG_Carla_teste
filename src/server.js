@@ -34,15 +34,16 @@ import { buildTinyWholesalePriceIndex, findTinyPriceList, findTinyPriceLists, ge
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "2026-09-03-storefront-script-install-v1";
+const APP_VERSION = "2026-09-03-tiny-rate-script-guidance-v1";
 const TINY_SYNC_BATCH_SIZE = Math.max(1, Math.min(80, Number(process.env.TINY_SYNC_BATCH_SIZE || 30)));
 const TINY_SYNC_ITEM_DELAY_MS = Math.max(0, Math.min(2000, Number(process.env.TINY_SYNC_ITEM_DELAY_MS || 120)));
 const TINY_SYNC_MAX_RUNTIME_MS = Math.max(3000, Math.min(25000, Number(process.env.TINY_SYNC_MAX_RUNTIME_MS || 8500)));
 const TINY_AUTO_SYNC_INTERVAL_MINUTES = Math.max(5, Math.min(1440, Number(process.env.TINY_AUTO_SYNC_INTERVAL_MINUTES || 15)));
 const TINY_PRICE_SYNC_BATCH_SIZE = Math.max(50, Math.min(2000, Number(process.env.TINY_PRICE_SYNC_BATCH_SIZE || 700)));
-const TINY_DISCOVERY_BATCH_SIZE = Math.max(0, Math.min(25, Number(process.env.TINY_DISCOVERY_BATCH_SIZE || 3)));
-const TINY_SKU_INDEX_BATCH_SIZE = Math.max(0, Math.min(80, Number(process.env.TINY_SKU_INDEX_BATCH_SIZE || 5)));
-const TINY_SYNC_LOCK_MS = Math.max(15000, Math.min(180000, Number(process.env.TINY_SYNC_LOCK_MS || 45000)));
+const TINY_DISCOVERY_BATCH_SIZE = Math.max(0, Math.min(25, Number(process.env.TINY_DISCOVERY_BATCH_SIZE || 0)));
+const TINY_SKU_INDEX_BATCH_SIZE = Math.max(0, Math.min(80, Number(process.env.TINY_SKU_INDEX_BATCH_SIZE || 1)));
+const TINY_SKU_SEARCH_MAX_PAGES = Math.max(1, Math.min(5, Number(process.env.TINY_SKU_SEARCH_MAX_PAGES || 1)));
+const TINY_SYNC_LOCK_MS = Math.max(15000, Math.min(180000, Number(process.env.TINY_SYNC_LOCK_MS || 90000)));
 const TINY_UPDATES_MAX_PAGES = Math.max(1, Math.min(20, Number(process.env.TINY_UPDATES_MAX_PAGES || 5)));
 const allowedCorsOrigins = [
   "https://venusmodas4.lojavirtualnuvem.com.br",
@@ -644,6 +645,7 @@ async function startTinySyncJob({ restart = false } = {}) {
     notFound: [],
     stockSince: current.tinyStockUpdatesSince || tinyDefaultStockSince(),
     productSince: current.tinyProductUpdatesSince || tinyDefaultStockSince(),
+    productUpdatesChecked: false,
     startedAt: now,
     updatedAt: now,
     finishedAt: items.length ? "" : now,
@@ -756,7 +758,7 @@ async function processTinySyncJobBatch() {
     processedAt: job.productSince || db.tinyProductUpdatesSince || tinyDefaultStockSince(),
     error: ""
   };
-  if (!stoppedByRateLimit) {
+  if (!stoppedByRateLimit && job.productUpdatesChecked !== true) {
     try {
       productSync = await listTinyProductUpdates({
         dataAlteracao: job.productSince || db.tinyProductUpdatesSince || tinyDefaultStockSince(),
@@ -799,7 +801,7 @@ async function processTinySyncJobBatch() {
     }
 
     try {
-      const products = await searchTinyProducts({ search: searchKey, maxPages: 2 });
+      const products = await searchTinyProducts({ search: searchKey, maxPages: TINY_SKU_SEARCH_MAX_PAGES });
       products.forEach((product) => {
         const sku = normalizeSku(product.sku);
         const skuRuleIds = sku ? bySku.get(sku) || [] : [];
@@ -907,7 +909,7 @@ async function processTinySyncJobBatch() {
 
   const nextCursor = currentCursor + processedItems >= allItems.length ? allItems.length : currentCursor + processedItems;
   const finished = !stoppedByRateLimit && skuIndexDone && nextCursor >= allItems.length;
-  const rateLimitedUntil = stoppedByRateLimit ? new Date(Date.now() + 10 * 60 * 1000).toISOString() : "";
+  const rateLimitedUntil = stoppedByRateLimit ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : "";
   const updatedAt = new Date().toISOString();
   let stockSync = { updates: [], processedAt: job.stockSince || tinyDefaultStockSince(), error: "" };
   if (!stoppedByRateLimit && skuIndexDone) {
@@ -989,6 +991,7 @@ async function processTinySyncJobBatch() {
       rateLimitedUntil,
       stockSince: state.tinyStockUpdatesSince,
       productSince: state.tinyProductUpdatesSince,
+      productUpdatesChecked: job.productUpdatesChecked === true || !productSync.error,
       lastMessage: stoppedByRateLimit
         ? "Tiny bloqueou temporariamente a API. A sincronizacao vai continuar automaticamente depois da pausa."
         : finished
@@ -1264,7 +1267,7 @@ async function handleApi(req, res) {
       const scriptId = cleanString(process.env.NUVEMSHOP_STOREFRONT_SCRIPT_ID);
       if (!scriptId) {
         return sendJson(req, res, 400, {
-          error: "NUVEMSHOP_STOREFRONT_SCRIPT_ID não configurado. Informe o ID do script criado no Portal de Parceiros da Nuvemshop."
+          error: "NUVEMSHOP_STOREFRONT_SCRIPT_ID não configurado. Informe o ID do script da vitrine criado no Portal de Parceiros da Nuvemshop. Não é o ID da loja nem o ID do app."
         });
       }
       const db = await readDb();

@@ -1069,3 +1069,35 @@ Corrigido no app. Ainda depende de o script existir/estar ativo no Portal de Par
 **Versao**
 
 `2026-09-03-storefront-script-install-v1`
+
+## 2026-09-03 - Tiny voltou a pausar cedo e ID do script gerou duvida
+
+**Erro**
+
+A sincronizacao Tiny voltou a pausar por limite de API ainda no comeco da fila, por exemplo em `124/3432`. No painel, a associacao do script da vitrine tambem retornou `NUVEMSHOP_STOREFRONT_SCRIPT_ID nao configurado`, gerando confusao com store ID/app ID.
+
+**Onde apareceu**
+
+- Painel `Produtos em atacado`.
+- Aba `Configuracoes`, bloco `Script da vitrine`.
+
+**Motivo**
+
+Mesmo com a trava de concorrencia, a fase inicial ainda fazia chamadas de descoberta de SKU e consulta incremental mais vezes do que o necessario para uma conta Tiny sensivel a limite. No script da vitrine, o nome da variavel estava correto tecnicamente, mas a mensagem nao deixava claro que o ID esperado era o ID do script criado no Portal de Parceiros, e nao o ID da loja ou do app.
+
+**Como corrigimos**
+
+- A consulta incremental de produtos do Tiny passou a rodar uma unica vez por job.
+- A busca de vinculos por SKU ficou mais conservadora por padrao.
+- A descoberta item-a-item foi desligada por padrao para evitar derrubar a API.
+- A trava entre execucoes aumentou para 90 segundos.
+- O cooldown apos bloqueio do Tiny aumentou para 15 minutos.
+- A mensagem do painel agora explica que `NUVEMSHOP_STOREFRONT_SCRIPT_ID` e o ID do script da vitrine no Portal de Parceiros.
+
+**Status**
+
+Corrigido e em validacao.
+
+**Versao**
+
+`2026-09-03-tiny-rate-script-guidance-v1`
